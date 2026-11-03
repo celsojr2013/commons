@@ -1,0 +1,98 @@
+[
+  {
+    "name": "hurt",
+    "path": "spritesheets/torso/clothes/blouse/female/hurt",
+    "sha": "a391214c2476cf65256c476f41bafb4c920569a8",
+    "size": 0,
+    "url": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/contents/spritesheets/torso/clothes/blouse/female/hurt?ref=master",
+    "html_url": "https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/tree/master/spritesheets/torso/clothes/blouse/female/hurt",
+    "git_url": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/git/trees/a391214c2476cf65256c476f41bafb4c920569a8",
+    "download_url": null,
+    "type": "dir",
+    "_links": {
+      "self": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/contents/spritesheets/torso/clothes/blouse/female/hurt?ref=master",
+      "git": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/git/trees/a391214c2476cf65256c476f41bafb4c920569a8",
+      "html": "https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/tree/master/spritesheets/torso/clothes/blouse/female/hurt"
+    }
+  },
+  {
+    "name": "shoot",
+    "path": "spritesheets/torso/clothes/blouse/female/shoot",
+    "sha": "016392f25198846b3ca22a47c13baee4e2efff10",
+    "size": 0,
+    "url": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/contents/spritesheets/torso/clothes/blouse/female/shoot?ref=master",
+    "html_url": "https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/tree/master/spritesheets/torso/clothes/blouse/female/shoot",
+    "git_url": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/git/trees/016392f25198846b3ca22a47c13baee4e2efff10",
+    "download_url": null,
+    "type": "dir",
+    "_links": {
+      "self": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/contents/spritesheets/torso/clothes/blouse/female/shoot?ref=master",
+      "git": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/git/trees/016392f25198846b3ca22a47c13baee4e2efff10",
+      "html": "https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/tree/master/spritesheets/torso/clothes/blouse/female/shoot"
+    }
+  },
+  {
+    "name": "slash",
+    "path": "spritesheets/torso/clothes/blouse/female/slash",
+    "sha": "15981b4427058235f3ba98f0e3c89152059347ef",
+    "size": 0,
+    "url": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/contents/spritesheets/torso/clothes/blouse/female/slash?ref=master",
+    "html_url": "https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/tree/master/spritesheets/torso/clothes/blouse/female/slash",
+    "git_url": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/git/trees/15981b4427058235f3ba98f0e3c89152059347ef",
+    "download_url": null,
+    "type": "dir",
+    "_links": {
+      "self": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/contents/spritesheets/torso/clothes/blouse/female/slash?ref=master",
+      "git": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/git/trees/15981b4427058235f3ba98f0e3c89152059347ef",
+      "html": "https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/tree/master/spritesheets/torso/clothes/blouse/female/slash"
+    }
+  },
+  {
+    "name": "spellcast",
+    "path": "spritesheets/torso/clothes/blouse/female/spellcast",
+    "sha": "c4b93fcb4a2bfe12d881fc17486d4d41d21ae10f",
+    "size": 0,
+    "url": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/contents/spritesheets/torso/clothes/blouse/female/spellcast?ref=master",
+    "html_url": "https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/tree/master/spritesheets/torso/clothes/blouse/female/spellcast",
+    "git_url": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/git/trees/c4b93fcb4a2bfe12d881fc17486d4d41d21ae10f",
+    "download_url": null,
+    "type": "dir",
+    "_links": {
+      "self": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/contents/spritesheets/torso/clothes/blouse/female/spellcast?ref=master",
+      "git": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/git/trees/c4b93fcb4a2bfe12d881fc17486d4d41d21ae10f",
+      "html": "https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/tree/master/spritesheets/torso/clothes/blouse/female/spellcast"
+    }
+  },
+  {
+    "name": "thrust",
+    "path": "spritesheets/torso/clothes/blouse/female/thrust",
+    "sha": "759b00d6186e85e6932ba3c68bab8779cad56083",
+    "size": 0,
+    "url": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/contents/spritesheets/torso/clothes/blouse/female/thrust?ref=master",
+    "html_url": "https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/tree/master/spritesheets/torso/clothes/blouse/female/thrust",
+    "git_url": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/git/trees/759b00d6186e85e6932ba3c68bab8779cad56083",
+    "download_url": null,
+    "type": "dir",
+    "_links": {
+      "self": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/contents/spritesheets/torso/clothes/blouse/female/thrust?ref=master",
+      "git": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/git/trees/759b00d6186e85e6932ba3c68bab8779cad56083",
+      "html": "https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/tree/master/spritesheets/torso/clothes/blouse/female/thrust"
+    }
+  },
+  {
+    "name": "walk",
+    "path": "spritesheets/torso/clothes/blouse/female/walk",
+    "sha": "1a3cbe163e038e7577d2ea99ec5c5ff546374bad",
+    "size": 0,
+    "url": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/contents/spritesheets/torso/clothes/blouse/female/walk?ref=master",
+    "html_url": "https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/tree/master/spritesheets/torso/clothes/blouse/female/walk",
+    "git_url": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/git/trees/1a3cbe163e038e7577d2ea99ec5c5ff546374bad",
+    "download_url": null,
+    "type": "dir",
+    "_links": {
+      "self": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/contents/spritesheets/torso/clothes/blouse/female/walk?ref=master",
+      "git": "https://api.github.com/repos/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/git/trees/1a3cbe163e038e7577d2ea99ec5c5ff546374bad",
+      "html": "https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator/tree/master/spritesheets/torso/clothes/blouse/female/walk"
+    }
+  }
+]

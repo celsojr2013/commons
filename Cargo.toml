@@ -1,0 +1,43 @@
+[package]
+name = "commons-desktop"
+version = "0.4.3"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.9"
+base64 = "0.22"
+web-time = "1"
+url = "2"
+
+[build-dependencies]
+cc = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cpal = "0.16"
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "io-util", "signal"] }
+futures-util = "0.3"
+tokio-util = { version = "0.7", features = ["codec"] }
+tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "macos")))'.dependencies]
+nokhwa = { version = "0.10.11", default-features = false, features = ["input-native", "output-threaded"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Location", "Storage", "WebSocket", "MessageEvent", "Event", "ErrorEvent", "Blob", "Url", "HtmlAnchorElement"] }
+
+[profile.release]
+opt-level = "s"
+lto = "thin"

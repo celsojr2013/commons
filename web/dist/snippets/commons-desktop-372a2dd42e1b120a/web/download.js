@@ -1,0 +1,2 @@
+export function download(name,mime,bytes){const url=URL.createObjectURL(new Blob([bytes],{type:mime}));const link=document.createElement("a");link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}
+export function report_status(json){window.__commonsStatus=JSON.parse(json);window.dispatchEvent(new CustomEvent("commons-status",{detail:window.__commonsStatus}));}

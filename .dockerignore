@@ -1,0 +1,11 @@
+target
+.venv
+.cache
+.wasm-sysroot
+shots
+data
+dist
+tools/cache
+tools/bin
+tools/browser-tests/node_modules
+assets/lpc

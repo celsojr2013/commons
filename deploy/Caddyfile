@@ -1,0 +1,4 @@
+{$COMMONS_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy commons:8080
+}

@@ -1,0 +1,28 @@
+# Local user data and verification evidence
+/data/*
+!/data/.gitkeep
+/shots/
+/BUILD_NOTES.md
+# Generated binaries, toolchains, and caches
+/target/
+/dist/
+/.cache/
+/.venv/
+/.wasm-sysroot/
+/tools/bin/
+/tools/cache/
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.env.*
+!.env.example
+/exports/
+# One-off development migrations
+/tools/add_spaces.py
+/tools/integrate_calls.py
+/tools/network_tests.saved.rs
+/tools/privacy_envelopes.py
+/tools/upgrade_network.py
+/tools/upgrade_ui.py

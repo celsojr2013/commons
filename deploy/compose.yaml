@@ -1,0 +1,32 @@
+services:
+  commons:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      COMMONS_PASSWORD: ${COMMONS_PASSWORD:?Set a workspace password in .env}
+      COMMONS_DATA_DIR: /data
+    volumes:
+      - commons-data:/data
+    expose:
+      - "8080"
+  https:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - commons
+    environment:
+      COMMONS_DOMAIN: ${COMMONS_DOMAIN:?Set your public domain in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+volumes:
+  commons-data:
+  caddy-data:
+  caddy-config:

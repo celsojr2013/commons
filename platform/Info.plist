@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>dev.craftanything.commons</string>
+<key>CFBundleName</key><string>Commons</string>
+<key>CFBundleDisplayName</key><string>Commons</string>
+<key>CFBundleExecutable</key><string>Commons</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>7</string>
+<key>CFBundleShortVersionString</key><string>0.4.3</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSCameraUseContinuityCameraDeviceType</key><true/>
+<key>NSCameraUsageDescription</key><string>Show your camera to people in your current Commons room or private area, only when you turn your camera on.</string>
+<key>NSMicrophoneUsageDescription</key><string>Let people in your current Commons room or private area hear you, only when you turn your microphone on or test it.</string>
+<key>NSLocalNetworkUsageDescription</key><string>Connect to and host Commons workspaces on your local network.</string>
+</dict></plist>
