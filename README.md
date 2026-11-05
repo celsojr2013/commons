@@ -1,6 +1,20 @@
 # Commons desktop — pixel workspace studio
 
-An independent Rust / eframe desktop workspace with real host/join networking, editable tile maps, and animated layered characters. The original program has not been inspected or launched. The Halloween starter room follows the user's description, rather than an observed office or copied corporate assets.
+A self-hosted virtual workspace built with Rust / eframe, with desktop and browser clients, editable tile maps, animated characters, chat, audio, video and screen sharing.
+
+## Meetings and administration · 0.5.0
+
+Protocol 5: deploy the matching server and clients together. New workspaces begin with one map; existing valid world files keep their maps and gain stable map IDs.
+
+- **Profile → Administration** accepts a separate `COMMONS_ADMIN_PASSWORD`. Administrators can create/delete maps and use **Edit** in web and desktop sessions. The server authorizes every mutation and atomically saves `world.json` before publishing changes. Deleting an occupied map relocates participants to the entrance; incoming doors are removed and other door targets are repaired. One entrance map must remain. Administrative access ends on logout or disconnect. The shared entry password remains `COMMONS_PASSWORD`.
+- **Call → Meeting view** opens a large meeting layout; **Map view** returns without changing conversation or position. Camera tiles are paginated in groups of six. Click a camera or a named shared screen to pin it locally. The first available screen is selected by default; subsequent presenters do not replace an existing selection. **Gallery** clears the pin.
+- **Share screen** operates independently of the webcam. Web clients use their browser's screen/window/tab selector; desktop clients list displays and windows through the OS capture backend. Several people can present at once, and each viewer chooses one screen. Screen capture ends when the conversation changes, the source ends, or the user stops sharing. No system/tab audio is captured in this version; microphone audio remains independent.
+- **Devices → Camera quality** offers Low (320×240, up to 6 fps), Medium (640×480, up to 15 fps), and High (1280×720, up to 24 fps). Screen sharing preserves aspect ratio up to 1920×1080 at up to 5 fps, prioritizing text readability. Actual FPS depends on the camera, browser, machine and network. Audio remains PCM and video JPEG over the existing transport; this is not a WebRTC conference service.
+- Receivers subscribe to visible camera tiles and the selected screen, reducing off-page video delivery. Streams continue to respect room/private-area membership. Admin access does not bypass private media boundaries.
+
+Use HTTPS for browser capture. Native capture requires the operating system's screen-recording permission; Linux Wayland behavior depends on the compositor/portal. macOS native compilation and browser synthetic capture are checked separately from physical-device acceptance. Desktop releases for Windows/Linux need platform-specific packaging and hardware validation.
+
+See [hosting instructions](deploy/README.md) for self-hosting and [implementation notes](docs/IMPLEMENTATION.md) for validation scope and remaining platform checks.
 
 ## Make a space
 
@@ -12,7 +26,7 @@ Local-network guests can normally use the displayed LAN address. Internet guests
 
 ## Build your rooms
 
-Choose **Edit** beside **ROOMS**. Local users and the server host can edit; connected guests see the shared design.
+Choose **Edit** beside **ROOMS**. Local users, the server host, and authenticated administrators can edit; other guests see the shared design.
 
 - Rename rooms and set each map between 12×12 and 64×64 tiles.
 - Choose from 51 brushes: floors, walls, furniture, nature, and friendly Halloween decorations.
@@ -39,9 +53,9 @@ Run `cargo build`, `cargo test`, and `cargo clippy --all-targets -- -D warnings`
 
 `cargo run -- --screenshot shots/pixel-office.png` renders 120 frames, saves a native PNG and exits. Add `--view editor`, `--view avatar`, or `--view credits` to inspect those states. These runs don't overwrite the user's settings on exit.
 
-Automated tests cover networking, host-only room publication, live avatar updates, rejected guest edits and invalid maps, collision/pathfinding, resize/fill/erase, undo/redo, atomic save/reload, real pointer interaction with the editors, and visible animation frames for all appearance categories.
+Automated tests cover networking, server-authorized room publication, live avatar updates, rejected guest edits and invalid maps, collision/pathfinding, resize/fill/erase, undo/redo, atomic save/reload, real pointer interaction with the editors, and visible animation frames for all appearance categories.
 
-Screen sharing, importing arbitrary tilesets, and hosted internet relays are outside this version. Craft Anything's original comparison MCP tools remain unavailable; no comparison pass is claimed.
+Importing arbitrary tilesets and hosted internet relays are outside this version.
 
 
 ## Private areas and doors
@@ -52,9 +66,9 @@ In **Edit room**, choose **Areas & doors** from the palette category.
 
 Voice/video stay within the current map room outside private areas. Room chat likewise stays in its room; **Everyone** is the explicit workspace-wide text channel outside private areas. Inside a private area, chat is automatically private.
 
-**Door** places a transition on clear floor. Select a destination room and arrival tile, or choose **Use room entrance**. Walk onto a door to travel. Arrivals are latched until you step away, preventing immediate bounce loops. A door is one-way; place another door if you want a return route. Existing room designs are preserved; new default worlds include example connections, and you can add areas/doors to your saved maps.
+**Door** places a transition on clear floor. Select a destination room and arrival tile, or choose **Use room entrance**. Walk onto a door to travel. Arrivals are latched until you step away, preventing immediate bounce loops. A door is one-way; place another door if you want a return route. Existing room designs are preserved; new workspaces start with one room, and you can add maps, areas and doors.
 
-The host can publish these changes to guests. The server pauses mic/camera on conversation changes, including area edits during a call. Chat/media packets carry their intended conversation; a stale private packet cannot be delivered to a public conversation. Previously accepted private messages keep their original audience even if the host later expands an area.
+The host and authenticated administrators can publish these changes to guests. The server pauses mic, camera and screen sharing on conversation changes, including area edits during a call. Chat/media packets carry their intended conversation; a stale private packet cannot be delivered to a public conversation. Previously accepted private messages keep their original audience even if the host later expands an area.
 
 ## Camera, microphone and speaker controls
 
@@ -62,11 +76,11 @@ Use the bottom toolbar: **Mic on/off**, **Camera on/off**, **Speakers on/off**, 
 
 Settings include native microphone/camera/output selection, a local mic level test, a local camera preview, mirror preview, volume and a speaker test. Local tests do not transmit to the server and stop when settings close. Device choices are saved only when you press **Save device settings**. Capture switches start off on every launch. A conversation boundary pauses sharing and clears playout buffers; turn mic/camera on again when ready in the new conversation.
 
-This is real native capture/playback using CPAL and native AVFoundation on macOS (Nokhwa on other supported native targets), relayed through the same server, with mono 16 kHz speech and 320×240 JPEG video at up to 6 fps. Headphones are recommended; software echo cancellation is not implemented. It is intended for reachable, trusted networks, using the prototype's existing unencrypted transport. It is not a hosted WebRTC/SFU service.
+This is real native capture/playback using CPAL and native AVFoundation on macOS (Nokhwa on other supported native targets), relayed through the same server, with mono 16 kHz speech and JPEG video with the quality profiles listed above. Headphones are recommended; software echo cancellation is not implemented. It is intended for reachable, trusted networks, using the prototype's existing unencrypted transport. It is not a hosted WebRTC/SFU service.
 
 The macOS package is **dist/Commons.app**. It includes camera, microphone and local-network usage descriptions, has camera/audio-input entitlements, and is locally ad-hoc signed and verified. **tools/package_macos.py** packages the built binary. Launch the app bundle for normal use so macOS identifies permissions as Commons. Camera access is requested only when you enable camera access, capture, or a local test. The native AVFoundation backend detected this Mac's Logi Webcam C920e and received a valid 320×240 JPEG during an opt-in self-test; no image was saved or transmitted. Microphone hardware capture still requires user testing. Audio/video codecs, playback buffering, and real TCP routing are tested.
 
-All participants should use this updated build (wire protocol 4). Older servers are reported with an update message. For a second local connection, another app instance can join localhost; your first instance is already connected after Create server.
+All participants should use this updated build (wire protocol 5). Older servers are reported with an update message. For a second local connection, another app instance can join localhost; your first instance is already connected after Create server.
 
 Additional screenshot views: **--view devices**, **--view spaces**, and **--view doors**. Tests and screenshot runs do not write user profiles or world designs. Existing user data hashes were checked before and after verification.
 
@@ -77,7 +91,7 @@ macOS camera discovery now uses AVFoundation directly with USB-driver compatibil
 
 Use **Hide** on either sidebar or **Profile → View** to control panels and the device toolbar. **Profile → View → Map only** or **F10** leaves the map, compact overlays, and one restore button. **Esc** restores controls. An unfinished room draft is suspended while you navigate and restored afterward. Active sharing remains indicated with a stop button in map-only mode.
 
-**Profile → Avatar & profile** includes masculine and feminine bodies, matching expressions and garments, ten hairstyles, six tops per body, trousers/shorts/skirts, seven accessory choices and existing independent palette colors. All 49 character layers retain LPC author/license credits; older saved profiles remain compatible. Updated peers use protocol 4; restart older servers with this version.
+**Profile → Avatar & profile** includes masculine and feminine bodies, matching expressions and garments, ten hairstyles, six tops per body, trousers/shorts/skirts, seven accessory choices and existing independent palette colors. All 49 character layers retain LPC author/license credits; older saved profiles remain compatible. Updated peers use protocol 5; restart older servers with this version.
 
 **Profile → Theme** offers Light, Dark, or System and Lavender, Ocean, Forest, Rose, or Amber accents. Appearance and panel preferences persist locally; map and sprite colors stay original. Screenshot/test runs do not modify your office or profile.
 
@@ -86,7 +100,7 @@ Additional QA views: `--view female|dark|map|theme|devices`. `--camera-diagnosti
 
 ## Browser guests and hosting
 
-**Profile → Create server** has **Let guests join in their browser** (on by default) and a browser port, default 8080. **Profile → Server & invite** offers **Copy browser link** and **Open browser**. Guests open the link, enter a name/password, and use the same Rust/egui app compiled to real WebAssembly. Browser guests can move, chat, customize characters, use doors/private areas, change themes/panels, and use browser camera/mic settings. Hosting and room editing remain desktop-host functions; the WebSocket gateway strips editor credentials and rejects room edits even from a modified browser client.
+**Profile → Create server** has **Let guests join in their browser** (on by default) and a browser port, default 8080. **Profile → Server & invite** offers **Copy browser link** and **Open browser**. Guests open the link, enter a name/password, and use the same Rust/egui app compiled to real WebAssembly. Browser guests can move, chat, customize characters, use doors/private areas, change themes/panels, and use browser camera/mic settings. Hosting remains a native-server function. Web participants can unlock administration with the separate administrator password; the server rejects unauthorized map changes. The WebSocket handshake never grants editor permission by itself.
 
 One native server serves all HTML/CSS/JavaScript/WASM and bridges WebSocket guests to the existing room server. App assets are embedded and compressed; no separate dev server/CDN is needed. Desktop guests can join either a traditional TCP address or the same HTTP/HTTPS browser invite. Native WSS connections validate public TLS certificates. Browser session buffers are bounded, state updates coalesce, and privacy boundary events discard queued media.
 
@@ -101,7 +115,7 @@ Walking pace is now 5.75 tiles/second (15% faster) for keyboard and click-to-wal
 
 Navigation renders each room's floor as a cached nearest-neighbor texture rather than rebuilding thousands of image shapes every frame. Floor caches invalidate on floor/size changes; live editor painting remains immediate. The browser requests an opaque graphics surface with multisampling, depth, stencil, and dithering disabled; its pixel art and egui edge rendering do not need those extra GPU buffers/effects.
 
-Room maps transfer on initial join and after a world revision. Movement packets carry people and filtered chat instead of resending unchanged maps. State coalescing preserves pending map revisions, and native transports hydrate the omitted world from their revision cache. Movement sends/broadcasts at up to 25 Hz. Protocol 4 requires an updated host/client: restart the host and refresh the browser page after updating.
+Room maps transfer on initial join and after a world revision. Movement packets carry people and filtered chat instead of resending unchanged maps. State coalescing preserves pending map revisions, and native transports hydrate the omitted world from their revision cache. Movement sends/broadcasts at up to 25 Hz. Protocol 5 requires an updated host/client: restart the host and refresh the browser page after updating.
 
 Controlled local traffic measurements (two guest connections, 1440×900, same office) reduced average movement state size from roughly 21,105 to 685 bytes, about 97% smaller; no maps were resent during the updated walking sample. Frame timing varied widely under Chrome's software graphics renderer, so these measurements do not establish a hardware-independent FPS improvement. The person confirmed Chrome or Edge; their graphics hardware and frame rate remain unverified. The tests cover walking speed at 12–120 FPS, collision safety, cached floor pixels/invalidation, world synchronization/coalescing, and browser/desktop privacy and media behavior.
 

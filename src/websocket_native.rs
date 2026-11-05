@@ -27,8 +27,8 @@ pub fn run(
     let _ = stream.set_write_timeout(Some(Duration::from_secs(3)));
     let _ = stream.set_nodelay(true);
     let mut config = WebSocketConfig::default();
-    config.max_message_size = Some(2_097_152);
-    config.max_frame_size = Some(2_097_152);
+    config.max_message_size = Some(MAX_SERVER_EVENT_BYTES);
+    config.max_frame_size = Some(MAX_SERVER_EVENT_BYTES);
     config.write_buffer_size = 0;
     config.max_write_buffer_size = 1_048_576;
     let (mut socket, _) = tungstenite::client_tls_with_config(endpoint, stream, Some(config), None)

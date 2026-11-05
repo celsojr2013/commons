@@ -9,3 +9,16 @@ tools/cache
 tools/bin
 tools/browser-tests/node_modules
 assets/lpc
+.git
+.env
+**/.env
+**/.env.*
+**/*.log
+shots
+
+tools/web-toolchain
+
+!web/dist
+!web/dist/**
+commons-preview-*.tgz
+commons-preview-*.Dockerfile

@@ -15,7 +15,18 @@ extern "C" {
     #[wasm_bindgen(method)]
     fn input(this: &BrowserMedia, active: bool, device: &str, generation: u32);
     #[wasm_bindgen(method)]
-    fn camera(this: &BrowserMedia, active: bool, device: &str, generation: u32);
+    fn camera(
+        this: &BrowserMedia,
+        active: bool,
+        device: &str,
+        generation: u32,
+        width: u32,
+        height: u32,
+        fps: u32,
+        quality: u32,
+    );
+    #[wasm_bindgen(method)]
+    fn screen(this: &BrowserMedia, active: bool, generation: u32);
     #[wasm_bindgen(method)]
     fn output(this: &BrowserMedia, active: bool, device: &str, volume: f32);
     #[wasm_bindgen(method)]
@@ -71,6 +82,13 @@ pub struct Media {
     pub camera_status: String,
     pub mic_on: bool,
     pub camera_on: bool,
+    pub screen_on: bool,
+    pub screen_ready: bool,
+    pub screen_sources: Vec<ScreenSource>,
+    pub screen_source: String,
+    pub local_screen: Option<VideoView>,
+    pub screens: HashMap<u64, VideoView>,
+    screen_generation: u32,
     pub mic_test: bool,
     pub preview: bool,
     pub listening: bool,
@@ -93,6 +111,13 @@ impl Media {
             camera_status: "Choose a local device test to grant browser permissions.".into(),
             mic_on: false,
             camera_on: false,
+            screen_on: false,
+            screen_ready: false,
+            screen_sources: vec![],
+            screen_source: String::new(),
+            local_screen: None,
+            screens: HashMap::new(),
+            screen_generation: 0,
             mic_test: false,
             preview: false,
             listening: true,
@@ -126,11 +151,32 @@ impl Media {
         self.camera_generation = self.camera_generation.wrapping_add(1);
         self.camera_ready = false;
         self.local_video = None;
+        let (width, height, fps, quality) = self.preferences.quality.profile();
         self.bridge.camera(
             self.camera_on || self.preview,
             &self.preferences.camera,
             self.camera_generation,
+            width,
+            height,
+            fps,
+            quality as u32,
         );
+    }
+    pub fn refresh_screens(&mut self) {
+        self.screen_sources.clear();
+    }
+    pub fn start_screen(&mut self) {
+        self.screen_generation = self.screen_generation.wrapping_add(1);
+        self.screen_on = true;
+        self.screen_ready = false;
+        self.bridge.screen(true, self.screen_generation);
+    }
+    pub fn stop_screen(&mut self) {
+        self.screen_generation = self.screen_generation.wrapping_add(1);
+        self.screen_on = false;
+        self.screen_ready = false;
+        self.local_screen = None;
+        self.bridge.screen(false, self.screen_generation);
     }
     pub fn update_output(&mut self) {
         self.bridge.output(
@@ -158,7 +204,8 @@ impl Media {
         self.scope.as_ref()
     }
     pub fn pause_sharing(&mut self) -> bool {
-        let was = self.mic_on || self.camera_on;
+        let was = self.mic_on || self.camera_on || self.screen_on;
+        self.stop_screen();
         self.mic_on = false;
         self.camera_on = false;
         self.update_input();
@@ -175,6 +222,7 @@ impl Media {
     }
     pub fn clear_remote(&mut self) {
         self.remote.clear();
+        self.screens.clear();
         self.bridge.clear();
     }
     pub fn end_tests(&mut self) {
@@ -190,6 +238,7 @@ impl Media {
         }
     }
     pub fn stop(&mut self) {
+        self.stop_screen();
         self.mic_on = false;
         self.camera_on = false;
         self.mic_test = false;
@@ -257,15 +306,39 @@ impl Media {
                         packets.push(packet);
                     }
                 }
+                "screen" if event.generation == self.screen_generation && self.screen_on => {
+                    self.screen_ready = true;
+                    let packet = MediaPacket {
+                        kind: MediaKind::Screen,
+                        data: event.data,
+                        scope: None,
+                    };
+                    if let Ok(bytes) = packet.bytes() {
+                        if let Ok(image) = decode_video(&bytes, false) {
+                            let texture =
+                                ctx.load_texture("local screen", image, TextureOptions::LINEAR);
+                            self.local_screen = Some(VideoView {
+                                texture,
+                                received: Instant::now(),
+                            });
+                        }
+                    }
+                    if connected {
+                        packets.push(packet);
+                    }
+                }
+                "screen_end" if event.generation == self.screen_generation => self.stop_screen(),
                 "error" => {
                     let current = match event.source.as_str() {
                         "camera" => event.generation == self.camera_generation,
+                        "screen" => event.generation == self.screen_generation,
                         "microphone" => event.generation == self.input_generation,
                         _ => true,
                     };
                     if current {
                         self.error = event.text;
                         match event.source.as_str() {
+                            "screen" => self.stop_screen(),
                             "camera" => {
                                 self.camera_on = false;
                                 self.preview = false;
@@ -295,7 +368,7 @@ impl Media {
                     self.bridge.play(sender as f64, &packet.data);
                 }
             }
-            MediaKind::Video => {
+            MediaKind::Video | MediaKind::Screen => {
                 if let Ok(bytes) = packet.bytes() {
                     if let Ok(image) = decode_video(&bytes, false) {
                         let texture = ctx.load_texture(
@@ -303,7 +376,12 @@ impl Media {
                             image,
                             TextureOptions::LINEAR,
                         );
-                        self.remote.insert(
+                        let images = if packet.kind == MediaKind::Screen {
+                            &mut self.screens
+                        } else {
+                            &mut self.remote
+                        };
+                        images.insert(
                             sender,
                             VideoView {
                                 texture,
@@ -316,6 +394,8 @@ impl Media {
         }
     }
     pub fn retain_participants(&mut self, ids: &[u64]) {
+        self.screens
+            .retain(|id, v| ids.contains(id) && v.received.elapsed() < Duration::from_secs(4));
         self.remote
             .retain(|id, v| ids.contains(id) && v.received.elapsed() < Duration::from_secs(3));
         self.bridge.retain(&serde_json::to_string(ids).unwrap());

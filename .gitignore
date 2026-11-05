@@ -26,3 +26,18 @@ __pycache__/
 /tools/privacy_envelopes.py
 /tools/upgrade_network.py
 /tools/upgrade_ui.py
+
+/tools/web-toolchain/
+/deploy/public/
+/deploy/*.crt
+
+# Private installation recipes and LAN-only validation helpers
+/deploy/Caddyfile.lab
+/deploy/Caddyfile.preview
+/deploy/Dockerfile.lab
+/deploy/Dockerfile.preview
+/deploy/compose.lab.yaml
+/deploy/compose.preview.yaml
+/tools/browser-tests/check-lab.cjs
+/tools/browser-tests/run-lab.py
+/tools/browser-tests/run-preview.py

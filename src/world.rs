@@ -51,6 +51,8 @@ pub struct TalkScope {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct RoomMap {
+    #[serde(default)]
+    pub id: u64,
     pub name: String,
     pub width: usize,
     pub height: usize,
@@ -66,6 +68,7 @@ impl RoomMap {
         let width = width.clamp(12, 64);
         let height = height.clamp(12, 64);
         Self {
+            id: 0,
             name: name.into(),
             width,
             height,
@@ -424,6 +427,7 @@ pub fn preset(style: usize, name: &str, w: usize, h: usize) -> RoomMap {
     }
     m
 }
+#[cfg(test)]
 pub fn default_world() -> Vec<RoomMap> {
     let mut rooms = vec![
         preset(0, "The commons", 26, 18),
@@ -449,15 +453,16 @@ pub fn default_world() -> Vec<RoomMap> {
             arrival_y,
         });
     }
+    normalize_world(&mut rooms);
     rooms
 }
-#[cfg(not(target_arch = "wasm32"))]
 pub fn repair_targets(rooms: &mut [RoomMap]) {
     let sizes: Vec<_> = rooms
         .iter()
         .map(|r| (r.width, r.height, r.spawn()))
         .collect();
     for room in rooms {
+        room.doors.retain(|door| door.destination < sizes.len());
         for door in &mut room.doors {
             if let Some((w, h, _)) = sizes.get(door.destination) {
                 door.arrival_x = door.arrival_x.min(w - 1);
@@ -466,6 +471,61 @@ pub fn repair_targets(rooms: &mut [RoomMap]) {
         }
     }
 }
+
+/// Legacy room arrays gain stable IDs without changing their order or artwork.
+pub fn normalize_world(rooms: &mut Vec<RoomMap>) {
+    if rooms.is_empty() {
+        rooms.push(preset(1, "The commons", 26, 18));
+    }
+    let mut used = std::collections::HashSet::new();
+    let mut next = rooms
+        .iter()
+        .map(|r| r.id)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+    for room in rooms.iter_mut() {
+        if room.id == 0 || !used.insert(room.id) {
+            while next == 0 || used.contains(&next) {
+                next = next.wrapping_add(1);
+            }
+            room.id = next;
+            used.insert(next);
+            next = next.wrapping_add(1);
+        }
+    }
+    repair_targets(rooms);
+}
+pub fn valid_world(rooms: &[RoomMap]) -> bool {
+    !rooms.is_empty() && rooms.len() <= 128 && rooms.iter().all(RoomMap::validate)
+}
+pub fn initial_world() -> Vec<RoomMap> {
+    let mut rooms = vec![];
+    normalize_world(&mut rooms);
+    rooms
+}
+/// Door targets are legacy array offsets; repair them when an identified map is removed.
+#[cfg(any(test, not(target_arch = "wasm32")))]
+pub fn remove_room(rooms: &mut Vec<RoomMap>, id: u64) -> Result<usize, String> {
+    let index = rooms
+        .iter()
+        .position(|r| r.id == id)
+        .ok_or("This map no longer exists.")?;
+    if rooms.len() == 1 {
+        return Err("Keep one entrance map. Create another map before deleting this one.".into());
+    }
+    rooms.remove(index);
+    for map in rooms.iter_mut() {
+        map.doors.retain(|d| d.destination != index);
+        for door in &mut map.doors {
+            if door.destination > index {
+                door.destination -= 1;
+            }
+        }
+    }
+    Ok(index)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -497,5 +557,36 @@ mod tests {
         assert!(m.walkable(4, 4));
         m.ground.push(0);
         assert!(!m.validate());
+    }
+}
+
+#[cfg(test)]
+mod dynamic_tests {
+    use super::*;
+    #[test]
+    fn legacy_ids_and_doors_survive_creation_and_deletion() {
+        let mut rooms = default_world();
+        for room in &mut rooms {
+            room.id = 0;
+        }
+        normalize_world(&mut rooms);
+        let identities: Vec<_> = rooms.iter().map(|r| r.id).collect();
+        let removed = rooms[1].id;
+        assert_eq!(remove_room(&mut rooms, removed).unwrap(), 1);
+        assert_eq!(
+            rooms.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![identities[0], identities[2], identities[3]]
+        );
+        assert!(rooms[0].doors.is_empty());
+        assert_eq!(rooms[1].doors[0].destination, 2);
+        assert!(rooms
+            .iter()
+            .flat_map(|r| &r.doors)
+            .all(|d| d.destination < rooms.len()));
+        let mut empty = vec![];
+        normalize_world(&mut empty);
+        assert_eq!(empty.len(), 1);
+        let id = empty[0].id;
+        assert!(remove_room(&mut empty, id).is_err());
     }
 }

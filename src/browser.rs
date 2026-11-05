@@ -59,8 +59,12 @@ extern "C" {
     fn report_status(json: &str);
 }
 pub fn publish(app: &Commons) {
-    let mut status = serde_json::json!({"connected":app.connected,"connecting":app.connecting.is_some(),"client_only":true,"people":app.people().len(),"room":app.room,"position":app.position,"name":app.settings.name,"error":app.error,"mic":app.media.mic_on,"camera":app.media.camera_on,"preview":app.media.preview,"camera_ready":app.media.camera_ready,"mic_ready":app.media.mic_ready,"remote_video":app.media.remote.len()});
+    let mut status = serde_json::json!({"connected":app.connected,"connecting":app.connecting.is_some(),"client_only":true,"people":app.people().len(),"room":app.room,"position":app.position,"name":app.settings.name,"error":app.error,"mic":app.media.mic_on,"camera":app.media.camera_on,"preview":app.media.preview,"camera_ready":app.media.camera_ready,"mic_ready":app.media.mic_ready,"remote_video":app.media.remote.len(),"remote_screens":app.media.screens.len(),"screen":app.media.screen_on,"screen_ready":app.media.screen_ready,"admin":app.is_admin,"maps":app.maps.len(),"meeting":app.meeting.active,"meeting_page":app.meeting.page,"pin":format!("{:?}",app.meeting.pin),"quality":format!("{:?}",app.media.preferences.quality)});
     if app.qa {
+        status["local_camera_size"] =
+            serde_json::json!(app.media.local_video.as_ref().map(|v| v.texture.size()));
+        status["local_screen_size"] =
+            serde_json::json!(app.media.local_screen.as_ref().map(|v| v.texture.size()));
         status["frame"] = serde_json::json!(app.frames);
         status["controls"] = serde_json::json!(app
             .chrome

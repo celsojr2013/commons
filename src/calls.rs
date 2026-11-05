@@ -63,9 +63,18 @@ impl Commons {
             .collect();
 
         self.media.retain_participants(&ids);
+        let sharing = self.media.screen_on && self.media.screen_ready;
+        if self.meeting.sent_screen != sharing {
+            self.send(Command::ShareStatus(sharing));
+            self.meeting.sent_screen = sharing;
+        }
+        self.update_video_subscription();
     }
 
     fn send_media_status(&self) {
+        self.send(Command::ShareStatus(
+            self.media.screen_on && self.media.screen_ready,
+        ));
         self.send(Command::MediaStatus {
             mic: self.media.mic_on,
             camera: self.media.camera_on,
@@ -79,7 +88,7 @@ impl Commons {
                 Frame::new()
                     .fill(theme::palette(ctx).panel)
                     .inner_margin(Margin::symmetric(12, 7))
-                    .stroke(Stroke::new(1.0, theme::palette(ctx).border)),
+                    .stroke(Stroke::new(1.0_f32, theme::palette(ctx).border)),
             )
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
@@ -130,6 +139,31 @@ impl Commons {
                         self.media.update_camera();
                         self.send_media_status();
                     }
+                    let share = self.action(
+                        ui,
+                        "screen_share",
+                        icons::Icon::View,
+                        if self.media.screen_on {
+                            "Stop screen"
+                        } else {
+                            "Share screen"
+                        },
+                        self.media.screen_on,
+                        self.connected,
+                    );
+                    if share.clicked() {
+                        self.media.error.clear();
+                        if self.media.screen_on {
+                            self.media.stop_screen();
+                            self.send(Command::ShareStatus(false));
+                        } else if cfg!(target_arch = "wasm32") {
+                            self.media.start_screen();
+                            self.enter_meeting();
+                        } else {
+                            self.media.refresh_screens();
+                            self.open(Dialog::ScreenPicker);
+                        }
+                    }
                     if self
                         .action(
                             ui,
@@ -168,6 +202,9 @@ impl Commons {
                         .clicked()
                     {
                         self.show_call = !self.show_call;
+                        if !self.show_call {
+                            self.meeting.active = false;
+                        }
                     }
                     if !self.media.error.is_empty() && ui.small_button("Device issue").clicked() {
                         self.open(Dialog::Devices);
@@ -200,7 +237,15 @@ impl Commons {
 
         Window::new("Camera, microphone & speakers").open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER,Vec2::ZERO).default_width(680.0).show(ctx,|ui|{
 
- ui.label(RichText::new("Your devices stay off until you choose to use them.").color(theme::palette(ui.ctx()).muted));
+ let previous_quality = self.media.preferences.quality;
+ui.horizontal(|ui| {
+    ui.label("Camera quality");
+    for (id, quality) in [("quality_low", media::CameraQuality::Low), ("quality_medium", media::CameraQuality::Medium), ("quality_high", media::CameraQuality::High)] {
+        let r = ui.selectable_value(&mut self.media.preferences.quality, quality, quality.label()); self.target(id, r.rect);
+    }
+});
+if self.media.preferences.quality != previous_quality { self.media.update_camera(); }
+ui.label(RichText::new("Your devices stay off until you choose to use them.").color(theme::palette(ui.ctx()).muted));
 ui.label(RichText::new(&self.media.camera_status).size(11.0).color(theme::palette(ui.ctx()).muted));
 if ui.button("Enable camera access / retry discovery").clicked(){self.media.request_camera_access();}
 
@@ -362,7 +407,7 @@ self.finish_devices();
             .into_iter()
             .filter(|p| p.scope(&self.maps) == scope)
             .collect();
-        let width = ((participants.len().max(1) as f32 * 142.0 + 24.0).max(350.0))
+        let width = ((participants.len().clamp(1, 6) as f32 * 142.0 + 24.0).max(350.0))
             .min((map.width() - 28.0).min(900.0));
         let shown = Area::new(Id::new("integrated call strip"))
             .order(Order::Foreground)
@@ -371,7 +416,7 @@ self.finish_devices();
             .show(ctx, |ui| {
                 Frame::new()
                     .fill(theme::palette(ctx).panel)
-                    .stroke(Stroke::new(1.0, theme::palette(ctx).border))
+                    .stroke(Stroke::new(1.0_f32, theme::palette(ctx).border))
                     .corner_radius(12)
                     .inner_margin(10)
                     .show(ui, |ui| {
@@ -390,6 +435,11 @@ self.finish_devices();
                                 theme::palette(ctx).accent,
                             );
                             ui.label(RichText::new(self.conversation_title()).size(12.0).strong());
+                            let meeting = ui.button("Meeting view");
+                            self.target("meeting_open", meeting.rect);
+                            if meeting.clicked() {
+                                self.enter_meeting();
+                            }
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 let r = icons::small(
                                     ui,
@@ -415,6 +465,15 @@ self.finish_devices();
                                 );
                             });
                         });
+                        ui.horizontal_wrapped(|ui| {
+                            for person in participants.iter().filter(|p| p.screen) {
+                                if ui.button(format!("Screen · {}", person.name)).clicked() {
+                                    self.meeting.pin = Some(meeting::Pin::Screen(person.id));
+                                    self.meeting.gallery = false;
+                                    self.enter_meeting();
+                                }
+                            }
+                        });
                         if !self.chrome.call_collapsed {
                             ScrollArea::horizontal()
                                 .id_salt("call participants")
@@ -425,7 +484,9 @@ self.finish_devices();
                                         if content < width - 20.0 {
                                             ui.add_space((width - 20.0 - content).max(0.0) / 2.0);
                                         }
-                                        for person in &participants {
+                                        for person in
+                                            participants.iter().skip(self.meeting.page * 6).take(6)
+                                        {
                                             ui.vertical(|ui| {
                                                 ui.set_width(120.0);
                                                 let (r, _) = ui.allocate_exact_size(
@@ -510,7 +571,6 @@ self.finish_devices();
         {
             let _ = address;
             self.connect(browser::origin());
-            return;
         }
         #[cfg(not(target_arch = "wasm32"))]
         {

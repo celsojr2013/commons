@@ -150,7 +150,7 @@ impl Commons {
                     p.rect_stroke(
                         r,
                         2,
-                        Stroke::new(1.5, Color32::from_rgb(181, 156, 230)),
+                        Stroke::new(1.5_f32, Color32::from_rgb(181, 156, 230)),
                         StrokeKind::Inside,
                     );
                     let label = format!("PRIVATE · {}", area.name);
@@ -194,6 +194,7 @@ impl Commons {
                     walking: self.walking,
                     mic: self.media.mic_on,
                     camera: self.media.camera_on,
+                    screen: self.media.screen_on,
                 });
                 let mut draw: Vec<(f32, bool, usize)> = map
                     .props
@@ -265,14 +266,14 @@ impl Commons {
                         let x = world.left() + x as f32 * cell;
                         p.line_segment(
                             [pos2(x, world.top()), pos2(x, world.bottom())],
-                            Stroke::new(0.5, Color32::from_white_alpha(35)),
+                            Stroke::new(0.5_f32, Color32::from_white_alpha(35)),
                         );
                     }
                     for y in 0..=map.height {
                         let y = world.top() + y as f32 * cell;
                         p.line_segment(
                             [pos2(world.left(), y), pos2(world.right(), y)],
-                            Stroke::new(0.5, Color32::from_white_alpha(35)),
+                            Stroke::new(0.5_f32, Color32::from_white_alpha(35)),
                         );
                     }
                 }
@@ -290,7 +291,7 @@ impl Commons {
                         p.rect_stroke(
                             hover,
                             0,
-                            Stroke::new(2.0, Color32::WHITE),
+                            Stroke::new(2.0_f32, Color32::WHITE),
                             StrokeKind::Inside,
                         );
                         let down =

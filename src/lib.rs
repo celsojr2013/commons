@@ -1,3 +1,4 @@
+mod administration;
 mod avatars;
 #[cfg(target_arch = "wasm32")]
 mod browser;
@@ -8,15 +9,19 @@ mod chrome;
 mod customization;
 mod editor;
 mod floor_cache;
+mod follow;
 mod hosting;
 mod icons;
 #[cfg_attr(target_arch = "wasm32", path = "media_web.rs")]
 mod media;
 mod media_types;
+mod meeting;
 mod movement;
 mod network;
 mod remote_motion;
 mod scene;
+#[cfg(not(target_arch = "wasm32"))]
+mod screen_backend;
 mod space_editor;
 mod storage;
 mod ui_theme;
@@ -25,7 +30,6 @@ mod view;
 mod web_host;
 mod world;
 mod zoom;
-mod follow;
 use avatars::{Avatar, Sprites};
 use editor::Editor;
 use eframe::egui::{self, *};
@@ -81,10 +85,13 @@ enum Dialog {
     Credits,
     Devices,
     Appearance,
+    Administration,
+    ScreenPicker,
 }
 struct Commons {
     settings: Settings,
     chrome: chrome::Chrome,
+    meeting: meeting::Meeting,
     qa: bool,
     persist: bool,
     server: Option<Server>,
@@ -98,6 +105,10 @@ struct Commons {
     away: bool,
     dialog: Option<Dialog>,
     password: String,
+    admin_password: String,
+    is_admin: bool,
+    new_room_name: String,
+    delete_room_id: Option<u64>,
     chat: String,
     room_chat: bool,
     people_tab: bool,
@@ -149,6 +160,7 @@ impl Commons {
         Self {
             persist,
             chrome: Default::default(),
+            meeting: Default::default(),
             qa: chrome::qa_enabled(),
             maps,
             world_revision: 0,
@@ -182,6 +194,10 @@ impl Commons {
             away: false,
             dialog: None,
             password: String::new(),
+            admin_password: String::new(),
+            is_admin: false,
+            new_room_name: String::new(),
+            delete_room_id: None,
             chat: String::new(),
             room_chat: false,
             people_tab: false,
@@ -209,6 +225,9 @@ impl Commons {
         }
     }
     fn disconnect(&mut self) {
+        self.is_admin = false;
+        self.meeting = Default::default();
+        self.admin_password.clear();
         self.remote_motion = Default::default();
         self.media.stop();
         self.client = None;
@@ -218,6 +237,7 @@ impl Commons {
         self.connecting = None;
         self.snapshot = Snapshot::default();
         self.maps = load_world();
+        self.room = 0;
         self.world_revision = 0;
         self.path.clear();
         self.walking = false;
@@ -280,6 +300,14 @@ impl Commons {
             .unwrap_or_default();
         for event in events {
             match event {
+                Event::AdminStatus(allowed) => {
+                    self.is_admin = allowed;
+                    self.admin_password.clear();
+                    if !allowed {
+                        self.editor = None;
+                        self.suspended_editor = None;
+                    }
+                }
                 Event::Welcome(id) => {
                     self.id = Some(id);
                     self.connected = true;
@@ -296,9 +324,22 @@ impl Commons {
                 }
                 Event::State(state) => {
                     if state.world_revision != self.world_revision
-                        && state.rooms.len() == 4
-                        && state.rooms.iter().all(|r| r.validate())
+                        && world::valid_world(&state.rooms)
                     {
+                        let previous_id = self.maps.get(self.room).map(|r| r.id);
+                        let new_room = state.rooms.iter().position(|r| Some(r.id) == previous_id);
+                        if new_room != Some(self.room) {
+                            self.path.clear();
+                            self.editor = None;
+                            self.suspended_editor = None;
+                            self.room = new_room.unwrap_or(0);
+                            self.position = state
+                                .people
+                                .iter()
+                                .find(|p| Some(p.id) == self.id)
+                                .map(|p| [p.x, p.y])
+                                .unwrap_or_else(|| state.rooms[self.room].spawn());
+                        }
                         self.maps = state.rooms.clone();
                         self.world_revision = state.world_revision;
                         if self.server.is_some() {
@@ -308,6 +349,7 @@ impl Commons {
                             self.position = self.maps[self.room].spawn();
                             self.path.clear();
                         }
+                        self.send(Command::WorldReady(state.world_revision));
                         self.send_motion();
                     }
                     self.remote_motion
@@ -336,11 +378,13 @@ impl Commons {
                     self.media.receive(ctx, sender, &scope, &packet);
                 }
                 Event::Error(error) => {
+                    self.is_admin = false;
                     self.error = error;
                     self.connecting = None;
                     self.connected = false;
                 }
                 Event::Disconnected => {
+                    self.is_admin = false;
                     self.media.stop();
                     self.connected = false;
                     self.connecting = None;
@@ -374,6 +418,7 @@ impl Commons {
                 walking: self.walking,
                 mic: self.media.mic_on,
                 camera: self.media.camera_on,
+                screen: self.media.screen_on,
             }]
         }
     }
@@ -421,7 +466,7 @@ impl Commons {
                 Frame::new()
                     .fill(theme::palette(ctx).panel)
                     .inner_margin(Margin::symmetric(18, 5))
-                    .stroke(Stroke::new(1.0, theme::palette(ctx).border)),
+                    .stroke(Stroke::new(1.0_f32, theme::palette(ctx).border)),
             )
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
@@ -473,7 +518,7 @@ impl Commons {
                 Frame::new()
                     .fill(theme::palette(ctx).sidebar)
                     .inner_margin(16)
-                    .stroke(Stroke::new(1.0, theme::palette(ctx).border)),
+                    .stroke(Stroke::new(1.0_f32, theme::palette(ctx).border)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -512,8 +557,7 @@ impl Commons {
                                 icons::Icon::Edit,
                                 "Edit",
                                 false,
-                                !cfg!(target_arch = "wasm32")
-                                    && (!self.connected || self.server.is_some()),
+                                self.can_edit_world(),
                             )
                             .on_hover_text("Edit this room")
                             .clicked()
@@ -564,7 +608,7 @@ impl Commons {
                 Frame::new()
                     .fill(theme::palette(ctx).panel)
                     .inner_margin(Margin::same(20))
-                    .stroke(Stroke::new(1.0, theme::palette(ctx).border)),
+                    .stroke(Stroke::new(1.0_f32, theme::palette(ctx).border)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -679,6 +723,14 @@ impl Commons {
             });
     }
     fn dialogs(&mut self, ctx: &Context) {
+        if self.dialog == Some(Dialog::ScreenPicker) {
+            self.screen_picker(ctx);
+            return;
+        }
+        if self.dialog == Some(Dialog::Administration) {
+            self.administration_dialog(ctx);
+            return;
+        }
         if self.dialog == Some(Dialog::Devices) {
             self.device_dialog(ctx);
             return;
@@ -708,6 +760,8 @@ impl Commons {
             Dialog::Help => "Make yourself at home",
             Dialog::Credits => "Art & credits",
             Dialog::Devices => "Camera & microphone",
+            Dialog::Administration => "Administration",
+            Dialog::ScreenPicker => "Share screen",
             Dialog::Appearance => "Appearance",
         };
         Window::new(title).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, Vec2::ZERO).default_width(430.0).show(ctx, |ui| {
@@ -826,7 +880,7 @@ if self.connected && ui.button("Leave current server").clicked() {
  }
  }
                 }
-                Dialog::Profile | Dialog::Credits | Dialog::Devices | Dialog::Appearance => {
+                Dialog::ScreenPicker | Dialog::Administration | Dialog::Profile | Dialog::Credits | Dialog::Devices | Dialog::Appearance => {
 }
                 Dialog::Help => {
                     for (number,title,text) in [("01","Make a space","Choose Create server, name your workspace, and enter. Your computer becomes the host."),("02","Bring your people","Copy an invite from Servers. Other people choose Join server and paste the address."),("03","Feel at home","Click the floor or use arrow keys / WASD to move. Choose a room on the left. Chat with everyone or just your room.")] {
@@ -1062,17 +1116,37 @@ fn write_json<T: Serialize>(path: &std::path::Path, value: &T) -> Result<(), Str
     storage::write(path, value)
 }
 fn load_world() -> Vec<RoomMap> {
-    storage::read(&data_dir().join("world.json"))
+    let mut maps = storage::read(&data_dir().join("world.json"))
         .ok()
         .and_then(|b| serde_json::from_slice::<Vec<RoomMap>>(&b).ok())
-        .filter(|maps| maps.len() == 4 && maps.iter().all(|r| r.validate()))
-        .unwrap_or_else(world::default_world)
+        .filter(|maps| world::valid_world(maps))
+        .unwrap_or_else(world::initial_world);
+    world::normalize_world(&mut maps);
+    maps
 }
+
 #[cfg(test)]
 mod ui_tests {
     use super::*;
+    #[test]
+    fn leaving_a_remote_map_resets_location_and_administrator_session() {
+        let ctx = Context::default();
+        let mut app = test_app(&ctx);
+        app.room = 127;
+        app.is_admin = true;
+        app.admin_password = "temporary".into();
+        app.meeting.active = true;
+        app.disconnect();
+        assert_eq!(app.room, 0);
+        assert_eq!(app.position, app.maps[0].spawn());
+        assert!(!app.is_admin);
+        assert!(app.admin_password.is_empty());
+        assert!(!app.meeting.active);
+    }
     fn test_app(ctx: &Context) -> Commons {
         let mut app = Commons::new(ctx, None);
+        app.maps = world::default_world();
+        app.position = app.maps[0].spawn();
         app.settings.view = Default::default();
         app.settings.appearance = Default::default();
         theme::apply(ctx, app.settings.appearance);
@@ -1225,27 +1299,55 @@ mod ui_tests {
         let assert_visible = |app: &Commons| {
             let map = app.chrome.map_rect.unwrap();
             let world = app.chrome.world_rect.unwrap();
-            let feet = world.min + vec2(app.position[0] * world.width(), app.position[1] * world.height());
-            assert!(map.shrink(24.0).contains(feet), "Character left viewport: {feet:?} in {map:?}");
+            let feet = world.min
+                + vec2(
+                    app.position[0] * world.width(),
+                    app.position[1] * world.height(),
+                );
+            assert!(
+                map.shrink(24.0).contains(feet),
+                "Character left viewport: {feet:?} in {map:?}"
+            );
             assert!(map.contains(feet - vec2(0.0, world.height() / 40.0 * 2.0)));
         };
         let _ = draw(&ctx, &mut app, vec![], &mut time);
-        let _ = draw(&ctx, &mut app, vec![egui::Event::Key {
-            key: Key::ArrowRight, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE,
-        }], &mut time);
+        let _ = draw(
+            &ctx,
+            &mut app,
+            vec![egui::Event::Key {
+                key: Key::ArrowRight,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            }],
+            &mut time,
+        );
         for _ in 0..150 {
             let _ = draw(&ctx, &mut app, vec![], &mut time);
             assert_visible(&app);
         }
-        let _ = draw(&ctx, &mut app, vec![egui::Event::Key {
-            key: Key::ArrowRight, physical_key: None, pressed: false, repeat: false, modifiers: Modifiers::NONE,
-        }], &mut time);
+        let _ = draw(
+            &ctx,
+            &mut app,
+            vec![egui::Event::Key {
+                key: Key::ArrowRight,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            }],
+            &mut time,
+        );
         assert!(app.position[0] > 0.9);
         assert!(app.camera.x < -400.0);
         let camera = app.camera;
         let map = app.chrome.map_rect.unwrap();
         let world = app.chrome.world_rect.unwrap();
-        let target = pos2(map.left() + 40.0, world.top() + app.position[1] * world.height());
+        let target = pos2(
+            map.left() + 40.0,
+            world.top() + app.position[1] * world.height(),
+        );
         click(&ctx, &mut app, target, &mut time);
         assert!(!app.path.is_empty());
         for _ in 0..120 {
@@ -1268,9 +1370,18 @@ mod ui_tests {
             let _ = draw(&ctx, &mut app, vec![], &mut time);
         }
         assert_eq!(app.camera, vec2(900.0, -900.0));
-        let _ = draw(&ctx, &mut app, vec![egui::Event::Key {
-            key: Key::ArrowDown, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE,
-        }], &mut time);
+        let _ = draw(
+            &ctx,
+            &mut app,
+            vec![egui::Event::Key {
+                key: Key::ArrowDown,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            }],
+            &mut time,
+        );
         assert!(app.camera.x < 900.0 && app.camera.y > -900.0);
         app.begin_edit();
         app.zoom = 3.0;

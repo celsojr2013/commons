@@ -1,4 +1,4 @@
-use crate::media::Capture;
+use crate::media::{CameraQuality, Capture};
 use serde::{Deserialize, Serialize};
 use std::{
     sync::{
@@ -41,6 +41,10 @@ mod native {
         fn commons_camera_permission(cb: extern "C" fn(*mut c_void, i32), ctx: *mut c_void);
         fn commons_camera_start(
             id: *const c_char,
+            width: u32,
+            height: u32,
+            fps: u32,
+            quality: u32,
             cb: extern "C" fn(*mut c_void, *const u8, usize),
             ctx: *mut c_void,
             error: *mut *mut c_char,
@@ -88,7 +92,7 @@ mod native {
         count: AtomicU64,
     }
     extern "C" fn receive_frame(context: *mut c_void, data: *const u8, length: usize) {
-        if data.is_null() || length == 0 || length > 98304 {
+        if data.is_null() || length == 0 || length > 262144 {
             return;
         }
         let frames = unsafe { &*(context as *const Frames) };
@@ -118,6 +122,7 @@ mod native {
     pub fn run(
         index: String,
         generation: u64,
+        quality: CameraQuality,
         events: mpsc::SyncSender<Capture>,
         stop: Arc<AtomicBool>,
     ) -> Result<(), String> {
@@ -134,9 +139,14 @@ mod native {
             count: AtomicU64::new(0),
         }));
         let mut error = std::ptr::null_mut();
+        let (width, height, fps, jpeg) = quality.profile();
         let handle = unsafe {
             commons_camera_start(
                 name.as_ptr(),
+                width,
+                height,
+                fps,
+                jpeg as u32,
                 receive_frame,
                 frames as *mut c_void,
                 &mut error,
@@ -200,6 +210,7 @@ pub fn permission(_stop: &AtomicBool) -> Result<(), String> {
 pub fn run(
     index: String,
     generation: u64,
+    quality: CameraQuality,
     events: mpsc::SyncSender<Capture>,
     stop: Arc<AtomicBool>,
 ) -> Result<(), String> {
@@ -215,24 +226,25 @@ pub fn run(
     )
     .map_err(|e| e.to_string())?;
     camera.open_stream().map_err(|e| e.to_string())?;
+    let (width, height, fps, jpeg) = quality.profile();
     let mut last = Instant::now() - Duration::from_secs(1);
     let mut ready = false;
     let result = (|| {
         while !stop.load(Ordering::Relaxed) {
             let frame = camera.frame().map_err(|e| e.to_string())?;
-            if last.elapsed() < Duration::from_millis(165) {
+            if last.elapsed() < Duration::from_millis(1000 / fps as u64) {
                 continue;
             }
             let rgb = frame
                 .decode_image::<nokhwa::pixel_format::RgbFormat>()
                 .map_err(|e| e.to_string())?;
             let image = image::DynamicImage::ImageRgb8(rgb).resize_to_fill(
-                320,
-                240,
+                width,
+                height,
                 image::imageops::FilterType::Triangle,
             );
             let mut bytes = vec![];
-            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 65)
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, jpeg)
                 .encode_image(&image)
                 .map_err(|e| e.to_string())?;
             if !ready {
@@ -259,7 +271,7 @@ pub fn self_test() -> Result<serde_json::Value, String> {
     let (tx, rx) = mpsc::sync_channel(12);
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
-    let handle = std::thread::spawn(move || run(id, 0, tx, flag));
+    let handle = std::thread::spawn(move || run(id, 0, CameraQuality::Low, tx, flag));
     let deadline = Instant::now() + Duration::from_secs(12);
     let result = loop {
         match rx.recv_timeout(Duration::from_millis(100)) {

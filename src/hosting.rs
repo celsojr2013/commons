@@ -4,11 +4,15 @@ impl Commons {
         if cfg!(target_arch = "wasm32") {
             return Err("Browser visitors join as guests. Host from the desktop app.".into());
         }
-        let mut server = Server::start_with_rooms(
+        let mut server = Server::start_configured(
             bind,
             self.settings.space.trim().to_owned(),
             self.password.clone(),
             self.maps.clone(),
+            network::ServerOptions {
+                admin_password: Some(self.admin_password.clone()),
+                world_path: self.persist.then(|| data_dir().join("world.json")),
+            },
         )?;
         if self.settings.browser_host {
             let port = self
@@ -24,6 +28,8 @@ impl Commons {
         Ok(server)
     }
     pub fn host_options(&mut self, ui: &mut Ui) {
+        ui.label("Administrator password (optional, enables web administration)");
+        ui.add(TextEdit::singleline(&mut self.admin_password).password(true));
         ui.checkbox(
             &mut self.settings.browser_host,
             "Let guests join in their browser",
@@ -93,7 +99,16 @@ pub fn serve_cli() -> Result<(), String> {
         }
     }
     let password = std::env::var("COMMONS_PASSWORD").unwrap_or_default();
-    let mut server = Server::start_with_rooms(&tcp, name, password, load_world())?;
+    let mut server = Server::start_configured(
+        &tcp,
+        name,
+        password,
+        load_world(),
+        network::ServerOptions {
+            admin_password: std::env::var("COMMONS_ADMIN_PASSWORD").ok(),
+            world_path: Some(data_dir().join("world.json")),
+        },
+    )?;
     server.enable_web(&bind)?;
     println!(
         "Commons workspace is ready. Browser: http://localhost:{}  Desktop TCP: {}",

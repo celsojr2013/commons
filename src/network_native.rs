@@ -56,7 +56,7 @@ fn flush(s: &mut TcpStream, out: &mut VecDeque<u8>) -> bool {
     true
 }
 
-fn receive(s: &mut TcpStream, input: &mut Vec<u8>) -> bool {
+fn receive(s: &mut TcpStream, input: &mut Vec<u8>, limit: usize) -> bool {
     let mut b = [0u8; 8192];
 
     loop {
@@ -65,7 +65,7 @@ fn receive(s: &mut TcpStream, input: &mut Vec<u8>) -> bool {
             Ok(n) => {
                 input.extend_from_slice(&b[..n]);
 
-                if input.len() > 2_097_152 {
+                if input.len() > limit {
                     return false;
                 }
             }
@@ -92,12 +92,16 @@ struct Peer {
     accepted: Instant,
     last_chat: Instant,
     can_edit: bool,
+    last_admin_attempt: Option<Instant>,
+    world_ready: bool,
     last_state: Vec<u8>,
     world_sent: Option<u64>,
     heartbeat: Instant,
     media_window: Instant,
     audio_count: u16,
     video_count: u16,
+    screen_count: u16,
+    video_subscription: Option<(Vec<u64>, Vec<u64>)>,
     scope: Option<TalkScope>,
 }
 
@@ -109,6 +113,11 @@ pub struct Server {
     handle: Option<thread::JoinHandle<()>>,
 }
 
+#[derive(Default)]
+pub struct ServerOptions {
+    pub admin_password: Option<String>,
+    pub world_path: Option<std::path::PathBuf>,
+}
 impl Server {
     pub fn enable_web(&mut self, bind: &str) -> Result<(), String> {
         let ip = if self.address.ip().is_unspecified() {
@@ -133,16 +142,27 @@ impl Server {
         Self::start_with_rooms(address, name, password, default_world())
     }
 
+    #[cfg(test)]
     pub fn start_with_rooms(
         address: &str,
         name: String,
         password: String,
-        mut rooms: Vec<RoomMap>,
+        rooms: Vec<RoomMap>,
     ) -> Result<Self, String> {
-        if rooms.len() != 4 || rooms.iter().any(|r| !r.validate()) {
+        Self::start_configured(address, name, password, rooms, ServerOptions::default())
+    }
+    pub fn start_configured(
+        address: &str,
+        name: String,
+        password: String,
+        mut rooms: Vec<RoomMap>,
+        options: ServerOptions,
+    ) -> Result<Self, String> {
+        if !crate::world::valid_world(&rooms) {
             return Err("The room designs are invalid.".into());
         }
 
+        crate::world::normalize_world(&mut rooms);
         repair_targets(&mut rooms);
 
         let editor_key = rand::random::<[u8; 32]>()
@@ -199,16 +219,21 @@ format!("Could not start this server: {e}")}
                         accepted: Instant::now(),
                         last_chat: Instant::now() - Duration::from_secs(2),
                         can_edit: false,
+                        last_admin_attempt: None,
+                        world_ready: true,
                         last_state: vec![],
                         world_sent: None,
                         heartbeat: Instant::now(),
                         media_window: Instant::now(),
                         audio_count: 0,
                         video_count: 0,
+                        screen_count: 0,
+                        video_subscription: None,
                         scope: None,
                     });
                 }
 
+                let mut world_requests: Vec<(u64, Command)> = vec![];
                 let mut chats: Vec<Message> = vec![];
 
                 let mut media: Vec<(u64, TalkScope, MediaPacket)> = vec![];
@@ -219,13 +244,14 @@ format!("Could not start this server: {e}")}
 if p.person.is_none()&&p.accepted.elapsed()>Duration::from_secs(8){
 return false;
 }
-if !receive(&mut p.stream,&mut p.input){
+if !receive(&mut p.stream,&mut p.input,2_097_152){
 return false;
 }
 if p.media_window.elapsed()>=Duration::from_secs(1){
 p.media_window=Instant::now();
 p.audio_count=0;
 p.video_count=0;
+p.screen_count=0;
 }
 
  while let Some(cmd)=line::<Command>(&mut p.input){
@@ -257,9 +283,10 @@ id:next_id,name,room:0,x:spawn[0],y:spawn[1],color:color%6,away:false,avatar:if 
 avatar}
 else{
 Avatar::default()}
-,direction:2,walking:false,mic:false,camera:false}
+,direction:2,walking:false,mic:false,camera:false,screen:false}
 );
 p.output.extend(encode(&Event::Welcome(next_id)));
+p.output.extend(encode(&Event::AdminStatus(p.can_edit)));
 next_id+=1;
 }
 
@@ -267,7 +294,7 @@ next_id+=1;
 room,x,y}
 )=>{
 if let Some(person)=&mut p.person{
-if room<4&&x.is_finite()&&y.is_finite(){
+if p.world_ready&&room<state.rooms.len()&&x.is_finite()&&y.is_finite(){
 person.room=room;
 person.x=x.clamp(0.08,0.92);
 person.y=y.clamp(0.18,0.88);
@@ -279,7 +306,7 @@ person.y=y.clamp(0.18,0.88);
 room,x,y,direction,walking}
 )=>{
 if let Some(person)=&mut p.person{
-if room<4&&x.is_finite()&&y.is_finite(){
+if p.world_ready&&room<state.rooms.len()&&x.is_finite()&&y.is_finite(){
 person.room=room;
 person.x=x.clamp(0.001,0.999);
 person.y=y.clamp(0.001,0.999);
@@ -297,15 +324,29 @@ person.avatar=avatar;
 }
 }
 
- Ok(Command::EditRoom{
-room,map}
-)=>{
-if p.can_edit&&p.person.is_some()&&room<4&&map.validate(){
-state.rooms[room]=map;
-repair_targets(&mut state.rooms);
-state.world_revision+=1;
-}
-}
+ Ok(Command::AdminLogin { password: supplied }) => {
+    if p.person.is_some() {
+        if p.last_admin_attempt.is_some_and(|t| t.elapsed() < Duration::from_secs(2)) {
+            p.output.extend(encode(&Event::Notice("Wait a moment before trying the administrator password again.".into())));
+        } else {
+            p.last_admin_attempt = Some(Instant::now());
+            if options.admin_password.as_ref().is_some_and(|secret| !secret.is_empty() && secret == &supplied) {
+                p.can_edit = true;
+                p.output.extend(encode(&Event::Notice("Administration unlocked.".into())));
+            } else {
+                p.output.extend(encode(&Event::Notice("Administrator password was not accepted.".into())));
+            }
+            p.output.extend(encode(&Event::AdminStatus(p.can_edit)));
+        }
+    }
+ }
+ Ok(Command::AdminLogout) => { p.can_edit = false; p.output.extend(encode(&Event::AdminStatus(false))); }
+ Ok(Command::WorldReady(revision)) => { if revision == state.world_revision { p.world_ready = true; } }
+ Ok(command @ (Command::EditRoom { .. } | Command::CreateRoom { .. } | Command::DeleteRoom { .. })) => {
+    if p.can_edit && p.world_ready {
+        if let Some(person) = &p.person { world_requests.push((person.id, command)); }
+    } else { p.output.extend(encode(&Event::Notice("Guests cannot edit maps. Unlock administrator access first.".into()))); }
+ }
 
  Ok(Command::Away(v))=>{
 if let Some(person)=&mut p.person{
@@ -313,6 +354,10 @@ person.away=v;
 }
 }
 
+ Ok(Command::SubscribeVideo { cameras, screens }) => {
+    p.video_subscription = Some((cameras.into_iter().take(16).collect(), screens.into_iter().take(2).collect()));
+ }
+ Ok(Command::ShareStatus(active)) => { if let Some(person) = &mut p.person { person.screen = active; } }
  Ok(Command::MediaStatus{
 mic,camera}
 )=>{
@@ -324,7 +369,7 @@ person.camera=camera;
 
  Ok(Command::Chat{text,room,scope:expected})=>{
 if let Some(person)=&p.person{
-if p.last_chat.elapsed()>Duration::from_millis(150){
+if p.world_ready&&p.last_chat.elapsed()>Duration::from_millis(150){
 let text:String=text.trim().chars().filter(|c|!c.is_control()).take(1000).collect();
 if !text.is_empty(){
 let scope=person.scope(&state.rooms);
@@ -351,10 +396,11 @@ p.audio_count=p.audio_count.saturating_add(1);
 person.mic&&p.audio_count<=60}
 ,MediaKind::Video=>{
 p.video_count=p.video_count.saturating_add(1);
-person.camera&&p.video_count<=10}
+person.camera&&p.video_count<=30}
+,MediaKind::Screen=>{p.screen_count=p.screen_count.saturating_add(1);person.screen&&p.screen_count<=10}
 }
 ;
-if allowed&&packet.valid()&&packet.scope.as_ref()==Some(&person.scope(&state.rooms)){
+if p.world_ready&&allowed&&packet.valid()&&packet.scope.as_ref()==Some(&person.scope(&state.rooms)){
 media.push((person.id,person.scope(&state.rooms),packet));
 }
 }
@@ -365,15 +411,146 @@ media.push((person.id,person.scope(&state.rooms),packet));
 if let Some(person)=&p.person{audience.insert(person.id,person.clone());}
 
 }
-p.output.len()<4_194_304&&flush(&mut p.stream,&mut p.output)}
+p.output.len()<MAX_SERVER_EVENT_BYTES&&flush(&mut p.stream,&mut p.output)}
 );
 
+                for (requester, command) in world_requests {
+                    if !peers
+                        .iter()
+                        .any(|p| p.can_edit && p.person.as_ref().is_some_and(|p| p.id == requester))
+                    {
+                        continue;
+                    }
+                    let previous = state.rooms.clone();
+                    let mut updated = previous.clone();
+                    let result: Result<bool, String> = (|| {
+                        match command {
+                            Command::EditRoom { room, map } => {
+                                let current =
+                                    updated.get(room).ok_or("This map no longer exists.")?;
+                                if map.id != current.id || !map.validate() {
+                                    return Err(
+                                        "Map changed or is invalid. Reopen the editor.".into()
+                                    );
+                                }
+                                updated[room] = map;
+                                repair_targets(&mut updated);
+                                Ok(false)
+                            }
+                            Command::CreateRoom { name, revision } => {
+                                if revision != state.world_revision {
+                                    return Err(
+                                        "Maps changed. Try again with the current list.".into()
+                                    );
+                                }
+                                let name = name.trim();
+                                if name.is_empty()
+                                    || name.chars().count() > 40
+                                    || updated.len() >= 128
+                                {
+                                    return Err(
+                                        "Use a name of 1–40 characters (up to 128 maps).".into()
+                                    );
+                                }
+                                let mut map = crate::world::preset(1, name, 26, 18);
+                                // Random stable identity; deleted IDs are never intentionally reused.
+                                loop {
+                                    map.id = rand::random::<u64>() >> 11;
+                                    if map.id != 0 && !updated.iter().any(|m| m.id == map.id) {
+                                        break;
+                                    }
+                                }
+                                updated.push(map);
+                                Ok(true)
+                            }
+                            Command::DeleteRoom { id, revision } => {
+                                if revision != state.world_revision {
+                                    return Err(
+                                        "Maps changed. Review the current list before deleting."
+                                            .into(),
+                                    );
+                                }
+                                crate::world::remove_room(&mut updated, id)?;
+                                Ok(true)
+                            }
+                            _ => unreachable!(),
+                        }
+                    })();
+                    let result = result.and_then(|structural| {
+                        if let Some(path) = &options.world_path {
+                            crate::storage::write(path, &updated)?;
+                        }
+                        Ok(structural)
+                    });
+                    match result {
+                        Ok(structural) => {
+                            if structural && updated.len() < previous.len() {
+                                for peer in &mut peers {
+                                    if let Some(person) = &mut peer.person {
+                                        let id = previous[person.room].id;
+                                        if let Some(index) = updated.iter().position(|m| m.id == id)
+                                        {
+                                            person.room = index;
+                                        } else {
+                                            person.room = 0;
+                                            let pos = updated[0].spawn();
+                                            person.x = pos[0];
+                                            person.y = pos[1];
+                                        }
+                                        person.mic = false;
+                                        person.camera = false;
+                                        person.screen = false;
+                                        peer.world_ready = false;
+                                        peer.scope = None;
+                                        peer.output.extend(encode(&Event::ConversationChanged(
+                                            person.scope(&updated),
+                                        )));
+                                    }
+                                }
+                                // Private audiences remain unchanged; remove history of deleted maps.
+                                state.messages.retain_mut(|message| {
+                                    if let Some(index) = message.room {
+                                        message.room = previous.get(index).and_then(|m| {
+                                            updated.iter().position(|n| n.id == m.id)
+                                        });
+                                        message.room.is_some()
+                                    } else {
+                                        true
+                                    }
+                                });
+                                chats.clear();
+                                media.clear();
+                            }
+                            state.rooms = updated;
+                            state.world_revision += 1;
+                            if let Some(peer) = peers
+                                .iter_mut()
+                                .find(|p| p.person.as_ref().is_some_and(|p| p.id == requester))
+                            {
+                                peer.output.extend(encode(&Event::Notice(
+                                    "Map changes saved on the server.".into(),
+                                )));
+                            }
+                        }
+                        Err(error) => {
+                            if let Some(peer) = peers
+                                .iter_mut()
+                                .find(|p| p.person.as_ref().is_some_and(|p| p.id == requester))
+                            {
+                                peer.output.extend(encode(&Event::Notice(format!(
+                                    "Map change was not saved: {error}"
+                                ))));
+                            }
+                        }
+                    }
+                }
                 for peer in &mut peers {
                     if let Some(person) = &mut peer.person {
                         let scope = person.scope(&state.rooms);
                         if peer.scope.as_ref().is_some_and(|old| old != &scope) {
                             person.mic = false;
                             person.camera = false;
+                            person.screen = false;
                             peer.output
                                 .extend(encode(&Event::ConversationChanged(scope.clone())));
                         }
@@ -399,6 +576,7 @@ p.output.len()<4_194_304&&flush(&mut p.stream,&mut p.output)}
                         || match packet.kind {
                             MediaKind::Audio => !person.mic,
                             MediaKind::Video => !person.camera,
+                            MediaKind::Screen => !person.screen,
                         }
                     {
                         continue;
@@ -415,7 +593,15 @@ p.output.len()<4_194_304&&flush(&mut p.stream,&mut p.output)}
                             .person
                             .as_ref()
                             .is_some_and(|p| p.id != sender && p.scope(&state.rooms) == scope)
-                            && peer.output.len() < 131072
+                            && peer.output.len() < 1048576
+                            && peer
+                                .video_subscription
+                                .as_ref()
+                                .is_none_or(|(cameras, screens)| match packet.kind {
+                                    MediaKind::Audio => true,
+                                    MediaKind::Video => cameras.contains(&sender),
+                                    MediaKind::Screen => screens.contains(&sender),
+                                })
                         {
                             peer.output.extend(encoded.clone());
                         }
@@ -585,7 +771,7 @@ format!("Could not reach {}. Check that the host is running and that the address
 
                 while !flag.load(Ordering::Relaxed) {
                     for cmd in commands.try_iter() {
-                        if matches!(cmd, Command::Media(_)) && output.len() > 131072 {
+                        if matches!(cmd, Command::Media(_)) && output.len() > 1048576 {
                             continue;
                         }
 
@@ -596,7 +782,7 @@ format!("Could not reach {}. Check that the host is running and that the address
                         return Err("The server connection closed.".into());
                     }
 
-                    let alive = receive(&mut stream, &mut input);
+                    let alive = receive(&mut stream, &mut input, MAX_SERVER_EVENT_BYTES);
 
                     while let Some(event) = line::<Event>(&mut input) {
                         match event{
@@ -785,6 +971,7 @@ mod tests {
         wait(&guest, |e| matches!(e,Event::State(s) if s.people.len()==2));
 
         let mut design = crate::world::preset(2, "Our forest", 32, 24);
+        design.id = 2;
 
         design.stamp(45, 4, 4, true);
 
@@ -935,6 +1122,7 @@ mod tests {
             height: 4,
         });
 
+        crate::world::normalize_world(&mut rooms);
         let server =
             Server::start_with_rooms("127.0.0.1:0", "Privacy".into(), "".into(), rooms).unwrap();
 
@@ -1061,6 +1249,7 @@ scope,packet,..}
             width: 4,
             height: 4,
         });
+        crate::world::normalize_world(&mut rooms);
         let server =
             Server::start_with_rooms("127.0.0.1:0", "Live edit".into(), "".into(), rooms.clone())
                 .unwrap();
@@ -1160,6 +1349,7 @@ scope,packet,..}
             width: 4,
             height: 4,
         });
+        crate::world::normalize_world(&mut rooms);
         let server =
             Server::start_with_rooms("127.0.0.1:0", "Audience".into(), "".into(), rooms.clone())
                 .unwrap();
@@ -1245,5 +1435,249 @@ scope,packet,..}
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod administration_tests {
+    use super::*;
+    fn wait(client: &Client, predicate: impl Fn(&Event) -> bool) -> Event {
+        let end = Instant::now() + Duration::from_secs(5);
+        loop {
+            let event = client
+                .rx
+                .recv_timeout(end.saturating_duration_since(Instant::now()))
+                .expect("event deadline");
+            if predicate(&event) {
+                return event;
+            }
+        }
+    }
+    fn state(client: &Client, revision: u64) -> Snapshot {
+        match wait(
+            client,
+            |e| matches!(e, Event::State(s) if s.world_revision == revision),
+        ) {
+            Event::State(s) => s,
+            _ => unreachable!(),
+        }
+    }
+    #[test]
+    fn web_admin_can_create_delete_and_persist_maps_but_guests_cannot() {
+        let path =
+            std::env::temp_dir().join(format!("commons-world-test-{}.json", rand::random::<u64>()));
+        let mut server = Server::start_configured(
+            "127.0.0.1:0",
+            "Admin test".into(),
+            "join".into(),
+            crate::world::initial_world(),
+            ServerOptions {
+                admin_password: Some("admin-test-secret".into()),
+                world_path: Some(path.clone()),
+            },
+        )
+        .unwrap();
+        server.enable_web("127.0.0.1:0").unwrap();
+        let address = format!("http://127.0.0.1:{}", server.web_port().unwrap());
+        let admin = Client::connect_custom(
+            address.clone(),
+            "Admin".into(),
+            "join".into(),
+            0,
+            Avatar::default(),
+            server.editor_key.clone(),
+        );
+        wait(&admin, |e| matches!(e, Event::AdminStatus(false))); // Web handshake cannot grant privilege.
+        let guest = Client::connect(address, "Guest".into(), "join".into(), 0);
+        wait(&guest, |e| matches!(e, Event::Welcome(_)));
+        guest
+            .tx
+            .send(Command::AdminLogin {
+                password: "wrong".into(),
+            })
+            .unwrap();
+        wait(
+            &guest,
+            |e| matches!(e, Event::Notice(s) if s.contains("not accepted")),
+        );
+        guest
+            .tx
+            .send(Command::CreateRoom {
+                name: "Forbidden".into(),
+                revision: 1,
+            })
+            .unwrap();
+        wait(
+            &guest,
+            |e| matches!(e, Event::Notice(s) if s.contains("cannot edit")),
+        );
+        assert!(!path.exists());
+        admin
+            .tx
+            .send(Command::AdminLogin {
+                password: "admin-test-secret".into(),
+            })
+            .unwrap();
+        wait(&admin, |e| matches!(e, Event::AdminStatus(true)));
+        admin
+            .tx
+            .send(Command::CreateRoom {
+                name: "Review".into(),
+                revision: 1,
+            })
+            .unwrap();
+        let added = state(&admin, 2);
+        assert_eq!(added.rooms.len(), 2);
+        assert_ne!(added.rooms[0].id, added.rooms[1].id);
+        let stable_id = added.rooms[1].id;
+        guest
+            .tx
+            .send(Command::Move {
+                room: 1,
+                x: 0.5,
+                y: 0.5,
+            })
+            .unwrap();
+        wait(
+            &admin,
+            |e| matches!(e, Event::State(s) if s.people.iter().any(|p| p.name=="Guest" && p.room==1)),
+        );
+        admin
+            .tx
+            .send(Command::DeleteRoom {
+                id: added.rooms[0].id,
+                revision: 2,
+            })
+            .unwrap();
+        let removed = state(&admin, 3);
+        assert_eq!(removed.rooms.len(), 1);
+        assert_eq!(removed.rooms[0].id, stable_id);
+        assert!(removed
+            .people
+            .iter()
+            .all(|p| p.room == 0 && !p.mic && !p.camera && !p.screen));
+        let saved: Vec<RoomMap> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved, removed.rooms);
+        admin.tx.send(Command::WorldReady(3)).unwrap();
+        admin
+            .tx
+            .send(Command::DeleteRoom {
+                id: stable_id,
+                revision: 3,
+            })
+            .unwrap();
+        wait(
+            &admin,
+            |e| matches!(e, Event::Notice(s) if s.contains("Keep one entrance")),
+        );
+        admin.tx.send(Command::AdminLogout).unwrap();
+        wait(&admin, |e| matches!(e, Event::AdminStatus(false)));
+        admin
+            .tx
+            .send(Command::CreateRoom {
+                name: "No longer allowed".into(),
+                revision: 3,
+            })
+            .unwrap();
+        wait(
+            &admin,
+            |e| matches!(e, Event::Notice(s) if s.contains("cannot edit")),
+        );
+        drop(guest);
+        drop(admin);
+        drop(server);
+        let restarted =
+            Server::start_with_rooms("127.0.0.1:0", "Restored".into(), "".into(), saved.clone())
+                .unwrap();
+        let client = Client::connect(restarted.address.to_string(), "Reader".into(), "".into(), 0);
+        assert_eq!(state(&client, 1).rooms, saved);
+        drop(client);
+        drop(restarted);
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn screen_and_camera_are_independent_and_video_subscription_filters_delivery() {
+        let server = Server::start("127.0.0.1:0", "Streams".into(), "".into()).unwrap();
+        let sender = Client::connect(server.address.to_string(), "Presenter".into(), "".into(), 0);
+        let viewer = Client::connect(server.address.to_string(), "Viewer".into(), "".into(), 0);
+        let id = match wait(&sender, |e| matches!(e, Event::Welcome(_))) {
+            Event::Welcome(id) => id,
+            _ => unreachable!(),
+        };
+        wait(
+            &viewer,
+            |e| matches!(e, Event::State(s) if s.people.len()==2),
+        );
+        viewer
+            .tx
+            .send(Command::SubscribeVideo {
+                cameras: vec![],
+                screens: vec![id],
+            })
+            .unwrap();
+        viewer.tx.send(Command::Away(true)).unwrap();
+        wait(
+            &sender,
+            |e| matches!(e, Event::State(s) if s.people.iter().any(|p|p.name=="Viewer"&&p.away)),
+        );
+        sender
+            .tx
+            .send(Command::MediaStatus {
+                mic: false,
+                camera: true,
+            })
+            .unwrap();
+        sender.tx.send(Command::ShareStatus(true)).unwrap();
+        wait(
+            &viewer,
+            |e| matches!(e, Event::State(s) if s.people.iter().any(|p|p.id==id&&p.camera&&p.screen)),
+        );
+        let scope = TalkScope {
+            room: 0,
+            area: None,
+        };
+        sender
+            .tx
+            .send(Command::Media(
+                MediaPacket::from_bytes(MediaKind::Video, &[255, 216, 255, 217])
+                    .with_scope(scope.clone()),
+            ))
+            .unwrap();
+        sender
+            .tx
+            .send(Command::Media(
+                MediaPacket::from_bytes(MediaKind::Screen, &[255, 216, 255, 217])
+                    .with_scope(scope.clone()),
+            ))
+            .unwrap();
+        let end = Instant::now() + Duration::from_secs(3);
+        loop {
+            let event = viewer
+                .rx
+                .recv_timeout(end.saturating_duration_since(Instant::now()))
+                .unwrap();
+            if let Event::Media { packet, .. } = event {
+                assert_eq!(packet.kind, MediaKind::Screen);
+                break;
+            }
+        }
+        sender.tx.send(Command::ShareStatus(false)).unwrap();
+        wait(
+            &viewer,
+            |e| matches!(e, Event::State(s) if s.people.iter().any(|p|p.id==id&&p.camera&&!p.screen)),
+        );
+        sender.tx.send(Command::ShareStatus(true)).unwrap();
+        sender
+            .tx
+            .send(Command::Move {
+                room: 1,
+                x: 0.5,
+                y: 0.5,
+            })
+            .unwrap();
+        wait(
+            &viewer,
+            |e| matches!(e, Event::State(s) if s.people.iter().any(|p|p.id==id&&p.room==1&&!p.camera&&!p.screen)),
+        );
     }
 }

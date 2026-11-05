@@ -1,6 +1,6 @@
 [package]
 name = "commons-desktop"
-version = "0.4.3"
+version = "0.5.0"
 edition = "2021"
 
 [lib]
@@ -21,6 +21,7 @@ cc = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.16"
+xcap = "=0.9.8"
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "io-util", "signal"] }
 futures-util = "0.3"

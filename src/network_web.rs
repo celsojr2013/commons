@@ -23,7 +23,7 @@ impl Sender {
         if self.0.ready_state() != WebSocket::OPEN {
             return Err("The server connection is not open.".into());
         }
-        if self.0.buffered_amount() > 262144 && matches!(command, Command::Media(_)) {
+        if self.0.buffered_amount() > 1048576 && matches!(command, Command::Media(_)) {
             return Ok(());
         }
         self.0
@@ -77,7 +77,7 @@ impl Client {
         let specific = had_error.clone();
         let _message = Closure::wrap(Box::new(move |message: MessageEvent| {
             if let Some(text) = message.data().as_string() {
-                if text.len() > 2_097_152 {
+                if text.len() > MAX_SERVER_EVENT_BYTES {
                     return;
                 }
                 match serde_json::from_str::<Event>(&text) {
@@ -144,20 +144,28 @@ pub struct Server {
     pub address: std::net::SocketAddr,
     pub editor_key: String,
 }
+#[derive(Default)]
+pub struct ServerOptions {
+    pub admin_password: Option<String>,
+    pub world_path: Option<std::path::PathBuf>,
+}
 impl Server {
+    pub fn start_configured(
+        _: &str,
+        _: String,
+        _: String,
+        _: Vec<RoomMap>,
+        options: ServerOptions,
+    ) -> Result<Self, String> {
+        let _ = (options.admin_password, options.world_path);
+        Err("Hosting is available in the desktop app.".into())
+    }
+
     pub fn web_port(&self) -> Option<u16> {
         None
     }
     pub fn enable_web(&mut self, _: &str) -> Result<(), String> {
         Err("Hosting is available in the desktop app.".into())
-    }
-    pub fn start_with_rooms(
-        _: &str,
-        _: String,
-        _: String,
-        _: Vec<RoomMap>,
-    ) -> Result<Self, String> {
-        Err("Browser visitors join as guests. Create a server in the desktop app.".into())
     }
 }
 pub fn local_address() -> String {

@@ -23,6 +23,10 @@ pub enum Capture {
         generation: u64,
         bytes: Vec<u8>,
     },
+    Screen {
+        generation: u64,
+        bytes: Vec<u8>,
+    },
     MicReady(u64),
     CameraReady(u64),
     CameraPermission(Result<(), String>),
@@ -332,11 +336,17 @@ struct CameraRun {
     handle: Option<thread::JoinHandle<()>>,
 }
 impl CameraRun {
-    fn start(index: String, generation: u64, events: mpsc::SyncSender<Capture>) -> Self {
+    fn start(
+        index: String,
+        generation: u64,
+        quality: CameraQuality,
+        events: mpsc::SyncSender<Capture>,
+    ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
         let handle = thread::spawn(move || {
-            let result = crate::camera_backend::run(index, generation, events.clone(), flag);
+            let result =
+                crate::camera_backend::run(index, generation, quality, events.clone(), flag);
             if let Err(text) = result {
                 let _ = events.try_send(Capture::Error {
                     source: "camera",
@@ -368,6 +378,14 @@ pub struct Media {
     pub camera_status: String,
     pub mic_on: bool,
     pub camera_on: bool,
+    pub screen_on: bool,
+    pub screen_ready: bool,
+    pub screen_sources: Vec<ScreenSource>,
+    pub screen_source: String,
+    pub local_screen: Option<VideoView>,
+    pub screens: HashMap<u64, VideoView>,
+    screen: Option<CameraRun>,
+    screen_generation: u64,
     pub mic_test: bool,
     pub preview: bool,
     pub listening: bool,
@@ -400,6 +418,14 @@ impl Media {
             camera_status: "Camera access has not been checked yet.".into(),
             mic_on: false,
             camera_on: false,
+            screen_on: false,
+            screen_ready: false,
+            screen_sources: vec![],
+            screen_source: String::new(),
+            local_screen: None,
+            screens: HashMap::new(),
+            screen: None,
+            screen_generation: 0,
             mic_test: false,
             preview: false,
             listening: true,
@@ -476,9 +502,50 @@ impl Media {
             self.camera = Some(CameraRun::start(
                 self.preferences.camera.clone(),
                 self.camera_generation,
+                self.preferences.quality,
                 self.sender.clone(),
             ));
         }
+    }
+    pub fn refresh_screens(&mut self) {
+        match crate::screen_backend::sources() {
+            Ok(sources) => self.screen_sources = sources,
+            Err(error) => self.error = error,
+        }
+    }
+    pub fn start_screen(&mut self) {
+        self.stop_screen();
+        if self.screen_source.is_empty() {
+            self.error = "Select a screen or window.".into();
+            return;
+        }
+        self.screen_on = true;
+        let source = self.screen_source.clone();
+        let generation = self.screen_generation;
+        let events = self.sender.clone();
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = stop.clone();
+        let handle = thread::spawn(move || {
+            if let Err(text) = crate::screen_backend::run(source, generation, events.clone(), flag)
+            {
+                let _ = events.send(Capture::Error {
+                    source: "screen",
+                    generation,
+                    text,
+                });
+            }
+        });
+        self.screen = Some(CameraRun {
+            stop,
+            handle: Some(handle),
+        });
+    }
+    pub fn stop_screen(&mut self) {
+        self.screen_generation = self.screen_generation.wrapping_add(1);
+        self.screen_on = false;
+        self.screen_ready = false;
+        self.screen = None;
+        self.local_screen = None;
     }
     pub fn update_output(&mut self) {
         self.volume.store(
@@ -506,7 +573,8 @@ impl Media {
         self.scope.as_ref()
     }
     pub fn pause_sharing(&mut self) -> bool {
-        let paused = self.mic_on || self.camera_on;
+        let paused = self.mic_on || self.camera_on || self.screen_on;
+        self.stop_screen();
         self.mic_on = false;
         self.camera_on = false;
         self.update_input();
@@ -525,6 +593,7 @@ impl Media {
     }
     pub fn clear_remote(&mut self) {
         self.remote.clear();
+        self.screens.clear();
         if let Ok(mut mixer) = self.mixer.lock() {
             mixer.voices.clear();
         }
@@ -542,6 +611,7 @@ impl Media {
         }
     }
     pub fn stop(&mut self) {
+        self.stop_screen();
         self.mic_on = false;
         self.camera_on = false;
         self.mic_test = false;
@@ -558,6 +628,7 @@ impl Media {
         let mut outgoing = vec![];
         let mut stop_input = false;
         let mut stop_camera = false;
+        let mut stop_screen = false;
         let mut refresh_cameras = false;
         for event in self.events.try_iter() {
             match event {
@@ -588,6 +659,22 @@ impl Media {
                         outgoing.push(MediaPacket::from_bytes(MediaKind::Video, &bytes));
                     }
                 }
+                Capture::Screen { generation, bytes }
+                    if generation == self.screen_generation && self.screen_on =>
+                {
+                    self.screen_ready = true;
+                    if let Ok(image) = decode_video(&bytes, false) {
+                        let texture =
+                            ctx.load_texture("local screen", image, TextureOptions::LINEAR);
+                        self.local_screen = Some(VideoView {
+                            texture,
+                            received: Instant::now(),
+                        });
+                    }
+                    if connected {
+                        outgoing.push(MediaPacket::from_bytes(MediaKind::Screen, &bytes));
+                    }
+                }
                 Capture::MicReady(g) if g == self.input_generation => self.mic_ready = true,
                 Capture::CameraReady(g) if g == self.camera_generation => self.camera_ready = true,
                 Capture::Error {
@@ -598,6 +685,7 @@ impl Media {
                     let current = match source {
                         "microphone" => generation == self.input_generation,
                         "camera" => generation == self.camera_generation,
+                        "screen" => generation == self.screen_generation,
                         _ => true,
                     };
                     if current {
@@ -615,12 +703,16 @@ impl Media {
                                 self.camera_ready = false;
                                 stop_camera = true;
                             }
+                            "screen" => stop_screen = true,
                             _ => self.listening = false,
                         }
                     }
                 }
                 _ => {}
             }
+        }
+        if stop_screen {
+            self.stop_screen();
         }
         if refresh_cameras {
             self.refresh_cameras();
@@ -648,11 +740,16 @@ impl Media {
                     }
                 }
             }
-            MediaKind::Video => {
+            MediaKind::Video | MediaKind::Screen => {
                 if let Ok(image) = decode_video(&bytes, false) {
                     let texture =
                         ctx.load_texture(format!("camera {sender}"), image, TextureOptions::LINEAR);
-                    self.remote.insert(
+                    let images = if packet.kind == MediaKind::Screen {
+                        &mut self.screens
+                    } else {
+                        &mut self.remote
+                    };
+                    images.insert(
                         sender,
                         VideoView {
                             texture,
@@ -664,6 +761,9 @@ impl Media {
         }
     }
     pub fn retain_participants(&mut self, ids: &[u64]) {
+        self.screens.retain(|id, view| {
+            ids.contains(id) && view.received.elapsed() < Duration::from_secs(4)
+        });
         self.remote.retain(|id, view| {
             ids.contains(id) && view.received.elapsed() < Duration::from_secs(3)
         });

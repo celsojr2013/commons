@@ -1,0 +1,56 @@
+const b64=bytes=>{let text="";for(const b of bytes)text+=String.fromCharCode(b);return btoa(text);};
+export class BrowserMedia {
+ constructor(){this.events=[];this.devices=[];this.status="Choose a local device test to grant browser permissions.";this.level=0;this.igen=0;this.cgen=0;this.sgen=0;this.streams={};this.nodes={};this.playing=new Map();this.next=new Map();this.listening=true;this.volume=.7;this.frames=0;this.wanted={};this.unlocked=()=>{if(this.ctx?.state==="suspended")this.ctx.resume().catch(()=>{});};document.addEventListener("pointerdown",this.unlocked);this.unload=()=>this.stop();window.addEventListener("pagehide",this.unload);if(!navigator.mediaDevices)this.status="Camera and microphone need HTTPS (or localhost). Ask the host for a secure browser link.";}
+ push(event){if(this.events.length>=24)this.events.shift();this.events.push(event);}
+ fail(source,generation,error){const friendly={NotAllowedError:"Permission was denied. Use your browser's site settings to allow this device, then retry.",NotFoundError:"No matching device is connected. Reconnect it, refresh devices, and try again.",NotReadableError:"The device could not be opened. Check the connection and other apps using it.",OverconstrainedError:"The selected device is unavailable. Refresh devices and select the current one."};this.push({kind:"error",source,generation,text:friendly[error?.name]||error?.message||String(error)});}
+ async refresh(){if(!navigator.mediaDevices){this.status="Camera and microphone need HTTPS (or localhost).";return;}try{const ds=await navigator.mediaDevices.enumerateDevices();this.devices=ds.filter(d=>d.kind!=="audiooutput"||typeof AudioContext.prototype.setSinkId==="function").map((d,i)=>({id:d.deviceId,name:d.label||`${d.kind==="videoinput"?"Camera":d.kind==="audioinput"?"Microphone":"Speaker"} ${i+1} (permission needed)`,kind:d.kind}));this.status=`${this.devices.filter(d=>d.kind==="videoinput").length} camera(s) found. Device access is controlled by this browser.`;}catch(e){this.fail("devices",0,e);}}
+ async permission(){try{if(!navigator.mediaDevices)throw Error("Use HTTPS or localhost to enable camera and microphone access.");const s=await navigator.mediaDevices.getUserMedia({video:true});s.getTracks().forEach(t=>t.stop());await this.refresh();}catch(e){this.fail("permission",0,e);}}
+ context(){if(!this.ctx){this.ctx=new AudioContext();this.gain=this.ctx.createGain();this.gain.gain.value=this.volume;this.gain.connect(this.ctx.destination);const selected=this.devices.find(d=>d.kind==="audiooutput"&&d.name===this.speaker);if(this.ctx.setSinkId)this.ctx.setSinkId(selected?.id||"").catch(e=>this.fail("speakers",0,e));}this.ctx.resume().catch(()=>{});return this.ctx;}
+ stopKind(kind){this.streams[kind]?.getTracks().forEach(t=>t.stop());delete this.streams[kind];if(kind==="audio"){this.nodes.input?.disconnect();this.nodes.worklet?.disconnect();this.nodes.silent?.disconnect();this.nodes={};this.level=0;}else{clearInterval(this.timer);if(this.video){this.video.pause();this.video.srcObject=null;}this.video=null;}}
+ async input(active,device,generation){this.igen=generation;this.events=this.events.filter(e=>e.source!=="microphone"&&e.kind!=="audio");this.stopKind("audio");if(!active)return;try{
+  if(!navigator.mediaDevices)throw Error("Use HTTPS or localhost to enable microphone access.");
+  const found=this.devices.find(d=>d.kind==="audioinput"&&d.name===device);const stream=await navigator.mediaDevices.getUserMedia({audio:{deviceId:found?.id?{exact:found.id}:undefined,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+  if(generation!==this.igen){stream.getTracks().forEach(t=>t.stop());return;}this.streams.audio=stream;const ctx=this.context();this.workletReady??=ctx.audioWorklet.addModule(new URL("/audio-worklet.js",location.origin));await this.workletReady;if(generation!==this.igen)return;
+  const input=ctx.createMediaStreamSource(stream),worklet=new AudioWorkletNode(ctx,"commons-pcm"),silent=ctx.createGain();silent.gain.value=0;input.connect(worklet);worklet.connect(silent);silent.connect(ctx.destination);this.nodes={input,worklet,silent};
+  worklet.port.onmessage=e=>{if(generation!==this.igen)return;const samples=new Int16Array(e.data);let sum=0;for(const n of samples)sum+=(n/32768)**2;this.level=Math.sqrt(sum/samples.length);this.push({kind:"audio",generation,data:b64(new Uint8Array(e.data))});};
+  stream.getAudioTracks()[0].onended=()=>{if(generation===this.igen)this.fail("microphone",generation,Error("The microphone disconnected. Refresh devices and retry."));};await this.refresh();
+ }catch(e){if(generation===this.igen){this.stopKind("audio");this.fail("microphone",generation,e);}}}
+ async camera(active,device,generation,width=320,height=240,fps=6,quality=60){this.cgen=generation;this.events=this.events.filter(e=>e.source!=="camera"&&e.kind!=="video");this.stopKind("video");if(!active)return;try{
+  if(!navigator.mediaDevices)throw Error("Use HTTPS or localhost to enable camera access.");
+  const exact=device&&device!=="0"&&device!=="system";const stream=await navigator.mediaDevices.getUserMedia({video:{deviceId:exact?{exact:device}:undefined,width:{ideal:width},height:{ideal:height},frameRate:{ideal:fps}}});if(generation!==this.cgen){stream.getTracks().forEach(t=>t.stop());return;}
+  this.streams.video=stream;const video=document.createElement("video");video.muted=true;video.playsInline=true;video.srcObject=stream;this.video=video;await video.play();if(generation!==this.cgen)return;
+  const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;const paint=canvas.getContext("2d");let pending=false;
+  this.timer=setInterval(()=>{if(generation!==this.cgen||video.readyState<2||pending)return;const scale=Math.max(width/video.videoWidth,height/video.videoHeight);paint.drawImage(video,(width-video.videoWidth*scale)/2,(height-video.videoHeight*scale)/2,video.videoWidth*scale,video.videoHeight*scale);pending=true;canvas.toBlob(async blob=>{try{if(blob&&generation===this.cgen){const bytes=new Uint8Array(await blob.arrayBuffer());if(generation===this.cgen&&bytes.length<=262144){this.frames++;this.push({kind:"video",generation,data:b64(bytes)});}}}finally{pending=false;}},"image/jpeg",quality/100);},1000/fps);
+  stream.getVideoTracks()[0].onended=()=>{if(generation===this.cgen)this.fail("camera",generation,Error("The camera disconnected. Refresh devices and retry."));};await this.refresh();
+ }catch(e){if(generation===this.cgen){this.stopKind("video");this.fail("camera",generation,e);}}}
+ stopScreen(){this.streams.screen?.getTracks().forEach(t=>t.stop());delete this.streams.screen;clearInterval(this.screenTimer);if(this.screenVideo){this.screenVideo.pause();this.screenVideo.srcObject=null;}this.screenVideo=null;}
+ async screen(active,generation){
+  this.sgen=generation;this.events=this.events.filter(e=>e.kind!=="screen"&&e.source!=="screen");this.stopScreen();if(!active)return;
+  try{
+   if(!navigator.mediaDevices?.getDisplayMedia)throw Error("Screen sharing needs a supported desktop browser over HTTPS.");
+   const stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:5,max:5}},audio:false});
+   if(generation!==this.sgen){stream.getTracks().forEach(t=>t.stop());return;}
+   this.streams.screen=stream;const video=document.createElement("video");video.muted=true;video.playsInline=true;video.srcObject=stream;this.screenVideo=video;await video.play();
+   if(generation!==this.sgen)return;
+   const canvas=document.createElement("canvas"),paint=canvas.getContext("2d");let pending=false;
+   this.screenTimer=setInterval(async()=>{
+    if(generation!==this.sgen||video.readyState<2||pending)return;pending=true;
+    try{
+     const scale=Math.min(1,1920/video.videoWidth,1080/video.videoHeight);
+     canvas.width=Math.max(1,Math.round(video.videoWidth*scale));canvas.height=Math.max(1,Math.round(video.videoHeight*scale));
+     paint.drawImage(video,0,0,canvas.width,canvas.height);
+     let blob;for(const quality of [.8,.65,.45]){blob=await new Promise(r=>canvas.toBlob(r,"image/jpeg",quality));if(blob&&blob.size<=524288)break;}
+     if(blob&&blob.size<=524288&&generation===this.sgen){const bytes=new Uint8Array(await blob.arrayBuffer());if(generation===this.sgen)this.push({kind:"screen",generation,data:b64(bytes)});}
+    }catch(e){if(generation===this.sgen)this.fail("screen",generation,e);}finally{pending=false;}
+   },200);
+   stream.getVideoTracks()[0].onended=()=>{if(generation===this.sgen){this.stopScreen();this.push({kind:"screen_end",generation});}};
+  }catch(e){if(generation===this.sgen){this.stopScreen();this.fail("screen",generation,e);}}
+ }
+ output(active,device,volume){this.speaker=device;this.listening=active;this.volume=Math.max(0,Math.min(1,volume));if(this.ctx)this.gain.gain.value=active?this.volume:0;const selected=this.devices.find(d=>d.kind==="audiooutput"&&d.name===device);if(this.ctx?.setSinkId)this.ctx.setSinkId(selected?.id||"").catch(e=>this.fail("speakers",0,e));if(!active)this.clear();}
+ play(sender,data){if(!this.listening)return;const raw=atob(data);if(raw.length!==640)return;const ctx=this.context();if(ctx.state!=="running")return;const queue=this.playing.get(sender)||new Set();if(queue.size>=16){queue.forEach(n=>{try{n.stop();}catch{}});queue.clear();this.next.delete(sender);}const buffer=ctx.createBuffer(1,320,16000),values=buffer.getChannelData(0);for(let i=0;i<320;i++){let n=raw.charCodeAt(i*2)|(raw.charCodeAt(i*2+1)<<8);if(n>=32768)n-=65536;values[i]=n/32768;}const source=ctx.createBufferSource();source.buffer=buffer;source.connect(this.gain);const time=Math.max(ctx.currentTime+.025,this.next.get(sender)||0);if(time>ctx.currentTime+.4)return;source.start(time);this.next.set(sender,time+.02);queue.add(source);this.playing.set(sender,queue);source.onended=()=>{queue.delete(source);source.disconnect();};}
+ clear(){for(const nodes of this.playing.values())for(const node of nodes){try{node.stop();}catch{}}this.playing.clear();this.next.clear();}
+ retain(ids){const allowed=new Set(JSON.parse(ids));for(const[id,nodes]of this.playing)if(!allowed.has(id)){for(const n of nodes){try{n.stop();}catch{}}this.playing.delete(id);this.next.delete(id);}}
+ tone(){const ctx=this.context(),osc=ctx.createOscillator(),gain=ctx.createGain();osc.frequency.value=440;gain.gain.value=.15;osc.connect(gain);gain.connect(this.gain);osc.start();osc.stop(ctx.currentTime+.25);osc.onended=()=>{osc.disconnect();gain.disconnect();};}
+ poll(){const events=this.events;this.events=[];return JSON.stringify({events,devices:this.devices,status:this.status,level:this.level});}
+ stop(){this.igen++;this.cgen++;this.sgen++;this.stopScreen();this.stopKind("audio");this.stopKind("video");this.clear();this.events=[];}
+}
