@@ -104,13 +104,17 @@ impl Commons {
                         if ui.small_button("Show controls · Esc").clicked() {
                             self.toggle_map_only();
                         }
-                        if self.media.mic_on || self.media.camera_on {
+                        if self.media.mic_on || self.media.camera_on || self.media.screen_on {
                             ui.label(if self.media.mic_on && self.media.camera_on {
                                 "Mic + camera on"
                             } else if self.media.mic_on {
                                 "Mic on"
                             } else {
-                                "Camera on"
+                                if self.media.screen_on {
+                                    "Screen on"
+                                } else {
+                                    "Camera on"
+                                }
                             });
                             if ui.small_button("Stop sharing").clicked() {
                                 self.media.pause_sharing();
@@ -137,7 +141,7 @@ impl Commons {
                 self.floating_profile(ctx);
             }
             self.header(ctx);
-            if self.settings.view.rooms {
+            if self.settings.view.rooms && !self.meeting.active {
                 self.sidebar(ctx);
             }
             if self.settings.view.conversation {
@@ -148,7 +152,11 @@ impl Commons {
                 }
             }
         }
-        self.main_panel(ctx);
+        if self.meeting.active {
+            self.meeting_panel(ctx);
+        } else {
+            self.main_panel(ctx);
+        }
         if self.settings.view.map_only {
             self.restore_controls(ctx);
         }

@@ -124,24 +124,24 @@ pub fn apply(ctx: &Context, appearance: Appearance) {
     style.visuals.window_fill = p.panel;
     style.visuals.extreme_bg_color = p.background;
     style.visuals.faint_bg_color = p.raised;
-    style.visuals.window_stroke = Stroke::new(1.0, p.border);
+    style.visuals.window_stroke = Stroke::new(1.0_f32, p.border);
     style.visuals.hyperlink_color = p.accent;
     style.visuals.selection.bg_fill = p.soft;
-    style.visuals.selection.stroke = Stroke::new(1.0, p.accent);
+    style.visuals.selection.stroke = Stroke::new(1.0_f32, p.accent);
     for widget in [
         &mut style.visuals.widgets.inactive,
         &mut style.visuals.widgets.noninteractive,
     ] {
         widget.bg_fill = p.raised;
         widget.weak_bg_fill = p.raised;
-        widget.bg_stroke = Stroke::new(1.0, p.border);
-        widget.fg_stroke = Stroke::new(1.0, p.text);
+        widget.bg_stroke = Stroke::new(1.0_f32, p.border);
+        widget.fg_stroke = Stroke::new(1.0_f32, p.text);
     }
     style.visuals.widgets.hovered.bg_fill = p.soft;
     style.visuals.widgets.hovered.weak_bg_fill = p.soft;
-    style.visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, p.text);
+    style.visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, p.text);
     style.visuals.widgets.active.bg_fill = p.soft;
-    style.visuals.widgets.active.fg_stroke = Stroke::new(1.0, p.text);
+    style.visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, p.text);
     style.spacing.item_spacing = vec2(10.0, 12.0);
     style.spacing.scroll = egui::style::ScrollStyle::solid();
     style.spacing.button_padding = vec2(14.0, 10.0);

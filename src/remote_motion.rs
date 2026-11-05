@@ -82,6 +82,7 @@ mod tests {
             walking: true,
             mic: false,
             camera: false,
+            screen: false,
         };
         motion.update(&[person.clone()], &maps, 1.0);
         person.x = 0.51;

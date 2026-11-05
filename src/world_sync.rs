@@ -7,7 +7,7 @@ pub struct WorldCache {
 }
 impl WorldCache {
     pub fn hydrate(&mut self, state: &mut Snapshot) {
-        if state.rooms.len() == 4 && state.rooms.iter().all(RoomMap::validate) {
+        if crate::world::valid_world(&state.rooms) {
             if self.revision != Some(state.world_revision) {
                 self.revision = Some(state.world_revision);
                 self.rooms = state.rooms.clone();

@@ -16,6 +16,7 @@ if (ROOT/'.wasm-sysroot/lib/rustlib/wasm32-unknown-unknown').exists() and Path(c
 subprocess.run(['cargo','build','--release','--target','wasm32-unknown-unknown','--lib'],cwd=ROOT,env=env,check=True)
 bindgen=shutil.which('wasm-bindgen')
 if not bindgen and __import__('platform').system()=='Darwin' and (ROOT/'tools/bin/wasm-bindgen').exists():bindgen=ROOT/'tools/bin/wasm-bindgen'
+if not bindgen and (ROOT/'tools/web-toolchain/bin/wasm-bindgen').exists():bindgen=ROOT/'tools/web-toolchain/bin/wasm-bindgen'
 if not bindgen:raise SystemExit('Install wasm-bindgen-cli matching Cargo.lock, then run this script again.')
 out=ROOT/'web/dist';out.mkdir(parents=True,exist_ok=True)
 subprocess.run([str(bindgen),'--target','web','--no-typescript','--out-dir',str(out),'--out-name','commons',str(ROOT/'target/wasm32-unknown-unknown/release/commons_desktop.wasm')],check=True)

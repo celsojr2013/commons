@@ -70,12 +70,13 @@ void commons_camera_permission(CCPermissionCallback callback, void *context) {
 @property(nonatomic,assign) CCFrameCallback callback;
 @property(nonatomic,assign) void *context;
 @property(nonatomic,assign) CFAbsoluteTime lastFrame;
+@property(nonatomic,assign) unsigned width, height, fps, quality;
 @end
 @implementation CCCamera
 -(void)captureOutput:(AVCaptureOutput *)output didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer fromConnection:(AVCaptureConnection *)connection {
     if (!atomic_load(&active)) return;
     CFAbsoluteTime now=CFAbsoluteTimeGetCurrent();
-    if (now-self.lastFrame<0.16) return;
+    if (now-self.lastFrame<1.0/self.fps) return;
     self.lastFrame=now;
     @autoreleasepool {
         CVImageBufferRef buffer=CMSampleBufferGetImageBuffer(sampleBuffer);
@@ -83,19 +84,19 @@ void commons_camera_permission(CCPermissionCallback callback, void *context) {
         CIImage *image=[CIImage imageWithCVPixelBuffer:buffer];
         CGRect extent=image.extent;
         if (extent.size.width<1 || extent.size.height<1) return;
-        CGFloat scale=MAX(320.0/extent.size.width,240.0/extent.size.height);
+        CGFloat scale=MAX(self.width/extent.size.width,self.height/extent.size.height);
         image=[image imageByApplyingTransform:CGAffineTransformMakeScale(scale,scale)];
-        CGRect crop=CGRectMake((image.extent.size.width-320.0)/2.0,(image.extent.size.height-240.0)/2.0,320,240);
+        CGRect crop=CGRectMake((image.extent.size.width-self.width)/2.0,(image.extent.size.height-self.height)/2.0,self.width,self.height);
         CGImageRef cg=[self.imageContext createCGImage:image fromRect:crop];
         if (!cg) return;
         NSBitmapImageRep *bitmap=[[NSBitmapImageRep alloc] initWithCGImage:cg];
-        NSData *jpeg=[bitmap representationUsingType:NSBitmapImageFileTypeJPEG properties:@{NSImageCompressionFactor:@0.65}];
+        NSData *jpeg=[bitmap representationUsingType:NSBitmapImageFileTypeJPEG properties:@{NSImageCompressionFactor:@(self.quality/100.0)}];
         CGImageRelease(cg);
         if (jpeg && atomic_load(&active)) self.callback(self.context,jpeg.bytes,jpeg.length);
     }
 }
 @end
-void *commons_camera_start(const char *identifier, CCFrameCallback callback,void *context,char **error) {
+void *commons_camera_start(const char *identifier, unsigned width, unsigned height, unsigned fps, unsigned quality, CCFrameCallback callback,void *context,char **error) {
     @autoreleasepool {
         @try {
             if ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo]!=AVAuthorizationStatusAuthorized) {*error=strdup("Camera access is not authorized. Enable access in Commons or macOS Camera privacy settings.");return NULL;}
@@ -114,11 +115,13 @@ void *commons_camera_start(const char *identifier, CCFrameCallback callback,void
             CCCamera *capture=[CCCamera new];
             atomic_init(&capture->active,true);
             capture.callback=callback;capture.context=context;
+            capture.width=width;capture.height=height;capture.fps=MAX(1,fps);capture.quality=quality;
             capture.imageContext=[CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@NO}];
             capture.queue=dispatch_queue_create("dev.craftanything.commons.camera",DISPATCH_QUEUE_SERIAL);
             capture.session=[AVCaptureSession new];capture.output=[AVCaptureVideoDataOutput new];
             [capture.session beginConfiguration];
-            if ([capture.session canSetSessionPreset:AVCaptureSessionPreset640x480]) capture.session.sessionPreset=AVCaptureSessionPreset640x480;
+            if (width>640 && [capture.session canSetSessionPreset:AVCaptureSessionPreset1280x720]) capture.session.sessionPreset=AVCaptureSessionPreset1280x720;
+            else if ([capture.session canSetSessionPreset:AVCaptureSessionPreset640x480]) capture.session.sessionPreset=AVCaptureSessionPreset640x480;
             else if ([capture.session canSetSessionPreset:AVCaptureSessionPresetMedium]) capture.session.sessionPreset=AVCaptureSessionPresetMedium;
             if (![capture.session canAddInput:input]) {*error=strdup("This camera input could not be added. Check whether another app is using it.");return NULL;}
             [capture.session addInput:input];

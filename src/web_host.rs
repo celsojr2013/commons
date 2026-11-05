@@ -149,8 +149,8 @@ async fn upgrade(
     let Ok(slot) = state.slots.clone().try_acquire_owned() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    ws.max_message_size(262144)
-        .max_frame_size(262144)
+    ws.max_message_size(1048576)
+        .max_frame_size(1048576)
         .on_upgrade(move |socket| async move {
             let _slot = slot;
             bridge(socket, state.target).await;
@@ -176,13 +176,13 @@ async fn bridge(mut socket: WebSocket, target: SocketAddr) {
     let (read, mut write) = stream.into_split();
     let mut lines = FramedRead::new(
         BufReader::new(read),
-        LinesCodec::new_with_max_length(2_097_152),
+        LinesCodec::new_with_max_length(crate::network::MAX_SERVER_EVENT_BYTES),
     );
     loop {
         tokio::select! {
          message=socket.recv()=>{match message{
           Some(Ok(Message::Text(text)))=>{let Ok(mut command)=serde_json::from_str::<Command>(&text)else{break;};
-           match &mut command{Command::Hello{editor_key,..}=>editor_key.clear(),Command::EditRoom{..}=>{let notice=serde_json::to_string(&Event::Notice("Browser guests cannot edit the host's rooms.".into())).unwrap();if socket.send(Message::Text(notice.into())).await.is_err(){break;}continue;},_=>{}}
+           if let Command::Hello{editor_key,..} = &mut command { editor_key.clear(); }
            let mut bytes=serde_json::to_vec(&command).unwrap();bytes.push(b'\n');if !matches!(tokio::time::timeout(Duration::from_secs(2),write.write_all(&bytes)).await,Ok(Ok(()))){break;}
           },Some(Ok(Message::Ping(data)))=>{if socket.send(Message::Pong(data)).await.is_err(){break;}},Some(Ok(Message::Pong(_)))=>{},_=>break,
          }}
@@ -314,7 +314,8 @@ mod integration_tests {
             &owner,
             |e| matches!(e,Event::State(s)if s.people.len()==2&&s.people.iter().any(|p|p.avatar.body==1)),
         );
-        let design = world::preset(2, "Host design", 32, 24);
+        let mut design = world::preset(2, "Host design", 32, 24);
+        design.id = 1;
         guest
             .tx
             .send(Command::EditRoom {

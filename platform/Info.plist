@@ -6,8 +6,8 @@
 <key>CFBundleDisplayName</key><string>Commons</string>
 <key>CFBundleExecutable</key><string>Commons</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleVersion</key><string>7</string>
-<key>CFBundleShortVersionString</key><string>0.4.3</string>
+<key>CFBundleVersion</key><string>8</string>
+<key>CFBundleShortVersionString</key><string>0.5.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSCameraUseContinuityCameraDeviceType</key><true/>
 <key>NSCameraUsageDescription</key><string>Show your camera to people in your current Commons room or private area, only when you turn your camera on.</string>

@@ -25,6 +25,12 @@ impl EventQueue {
             Event::ConversationChanged(_) => self
                 .events
                 .retain(|e| !matches!(e, Event::Media { .. } | Event::ConversationChanged(_))),
+            Event::Media { sender, packet, .. } if packet.kind != super::MediaKind::Audio => {
+                self.events.retain(|e| !matches!(e, Event::Media { sender: previous, packet: old, .. } if previous == sender && old.kind == packet.kind));
+                if self.events.len() >= 64 {
+                    return;
+                }
+            }
             Event::Media { .. } if self.events.len() >= 64 => return,
             _ => {}
         }

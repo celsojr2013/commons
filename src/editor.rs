@@ -141,7 +141,7 @@ impl Editor {
 }
 impl Commons {
     pub fn begin_edit(&mut self) {
-        if cfg!(target_arch = "wasm32") || (self.connected && self.server.is_none()) {
+        if !self.can_edit_world() {
             self.notice =
                 "The host controls room designs. You can still customize your avatar.".into();
             return;
@@ -161,28 +161,36 @@ impl Commons {
             self.error = "Use a room name of 1–40 characters and keep props inside the map.".into();
             return;
         }
-        let room = editor.map.clone();
-        self.maps[self.room] = room.clone();
+        let mut room = editor.map.clone();
+        room.id = self.maps[self.room].id;
         if self.connected {
             self.send(Command::EditRoom {
                 room: self.room,
                 map: room,
             });
+        } else {
+            self.maps[self.room] = room;
+            self.save_world();
         }
-        self.save_world();
         self.editor = None;
         self.error.clear();
         self.position = self.maps[self.room].spawn();
         self.path.clear();
         self.send_motion();
-        self.notice = "Room design saved. Everyone on your server sees the same room.".into();
+        self.notice = if self.connected {
+            "Saving map on the server…"
+        } else {
+            "Map saved locally."
+        }
+        .into();
     }
     pub fn editor_panel(&mut self, ctx: &Context) {
-        SidePanel::right("tile editor").exact_width(286.0).resizable(false).frame(Frame::new().fill(theme::palette(ctx).panel).inner_margin(18).stroke(Stroke::new(1.0,theme::palette(ctx).border))).show(ctx,|ui|{
+        SidePanel::right("tile editor").exact_width(286.0).resizable(false).frame(Frame::new().fill(theme::palette(ctx).panel).inner_margin(18).stroke(Stroke::new(1.0_f32,theme::palette(ctx).border))).show(ctx,|ui|{
   ui.horizontal(|ui|{ui.label(RichText::new("Room studio").size(19.0).strong());if ui.small_button("Hide").clicked(){self.settings.view.conversation=false;self.save_settings();}});
 ui.label(RichText::new("Build a little world of your own.").size(11.0).color(theme::palette(ui.ctx()).muted));
   ui.horizontal(|ui|{
-if primary(ui,"Save room").clicked(){
+let save = primary(ui,"Save room"); self.target("editor_save", save.rect);
+if save.clicked(){
 self.save_room();
 }
 if ui.button("Cancel").clicked(){
@@ -203,7 +211,8 @@ else{
   ScrollArea::vertical().id_salt("editor controls").show(ui,|ui|{
    ui.separator();
 ui.label(RichText::new("ROOM").size(10.0).color(theme::palette(ui.ctx()).muted).strong());
-ui.add(TextEdit::singleline(&mut editor.map.name).char_limit(40).desired_width(f32::INFINITY));
+let name_field = ui.add(TextEdit::singleline(&mut editor.map.name).char_limit(40).desired_width(f32::INFINITY));
+if cfg!(test) || self.qa { self.chrome.targets.insert("editor_name", name_field.rect); }
    ui.horizontal(|ui|{
 ui.label("Size");
 ui.add(DragValue::new(&mut editor.width).range(12..=64).suffix(" wide"));
@@ -259,7 +268,7 @@ else{
 theme::palette(ui.ctx()).raised}
 );
 if selected{
-ui.painter().rect_stroke(r,8,Stroke::new(1.5,theme::palette(ui.ctx()).accent),StrokeKind::Inside);
+ui.painter().rect_stroke(r,8,Stroke::new(1.5_f32,theme::palette(ui.ctx()).accent),StrokeKind::Inside);
 }
 let max=vec2(44.0,43.0);
 let size=vec2(a.width as f32,a.height as f32);

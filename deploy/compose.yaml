@@ -7,6 +7,7 @@ services:
     environment:
       COMMONS_PASSWORD: ${COMMONS_PASSWORD:?Set a workspace password in .env}
       COMMONS_DATA_DIR: /data
+      COMMONS_ADMIN_PASSWORD: ${COMMONS_ADMIN_PASSWORD:-}
     volumes:
       - commons-data:/data
     expose:

@@ -373,7 +373,7 @@ fn swatches(ui: &mut Ui, sprites: &Sprites, kind: usize, names: &[&str], selecte
                 ui.painter().circle_stroke(
                     r.center(),
                     14.0,
-                    Stroke::new(2.0, theme::palette(ui.ctx()).accent),
+                    Stroke::new(2.0_f32, theme::palette(ui.ctx()).accent),
                 );
             }
             if response.on_hover_text(name.replace('_', " ")).clicked() {

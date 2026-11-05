@@ -7,7 +7,9 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL: u16 = 4;
+pub const PROTOCOL: u16 = 5;
+/// Includes the full world, which can contain up to 128 maps.
+pub const MAX_SERVER_EVENT_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Person {
@@ -28,6 +30,8 @@ pub struct Person {
     pub mic: bool,
     #[serde(default)]
     pub camera: bool,
+    #[serde(default)]
+    pub screen: bool,
 }
 
 impl Person {
@@ -82,6 +86,7 @@ pub struct Snapshot {
 pub enum MediaKind {
     Audio,
     Video,
+    Screen,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -112,19 +117,38 @@ impl MediaPacket {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn valid(&self) -> bool {
-        if self.data.len() > 131072 {
+        if self.data.len() > 699052 {
             return false;
         }
 
         self.bytes().is_ok_and(|b| match self.kind {
             MediaKind::Audio => b.len() == 640,
-            MediaKind::Video => (4..=98304).contains(&b.len()),
+            MediaKind::Video => (4..=262144).contains(&b.len()),
+            MediaKind::Screen => (4..=524288).contains(&b.len()),
         })
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Command {
+    ShareStatus(bool),
+    SubscribeVideo {
+        cameras: Vec<u64>,
+        screens: Vec<u64>,
+    },
+    AdminLogin {
+        password: String,
+    },
+    AdminLogout,
+    WorldReady(u64),
+    CreateRoom {
+        name: String,
+        revision: u64,
+    },
+    DeleteRoom {
+        id: u64,
+        revision: u64,
+    },
     Hello {
         name: String,
         password: String,
@@ -169,6 +193,7 @@ pub enum Command {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Event {
+    AdminStatus(bool),
     Welcome(u64),
     State(Snapshot),
     Error(String),

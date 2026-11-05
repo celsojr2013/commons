@@ -158,6 +158,21 @@ impl Commons {
                         );
                         self.target("status_menu", status.response.rect);
                         ui.separator();
+                        if self.connected
+                            && self
+                                .action(
+                                    ui,
+                                    "administration",
+                                    Icon::Settings,
+                                    "Administration",
+                                    self.is_admin,
+                                    true,
+                                )
+                                .clicked()
+                        {
+                            self.chrome.profile_open = false;
+                            self.open(Dialog::Administration);
+                        }
                         self.view_menu(ui);
                         if self
                             .action(ui, "theme", Icon::Theme, "Theme", false, true)
@@ -262,7 +277,7 @@ impl Commons {
             .show(ctx, |ui| {
                 Frame::new()
                     .fill(theme::palette(ctx).panel)
-                    .stroke(Stroke::new(1.0, theme::palette(ctx).border))
+                    .stroke(Stroke::new(1.0_f32, theme::palette(ctx).border))
                     .corner_radius(9)
                     .inner_margin(5)
                     .show(ui, |ui| {
@@ -324,7 +339,7 @@ impl Commons {
                 Frame::new()
                     .fill(theme::palette(ctx).panel)
                     .stroke(Stroke::new(
-                        1.0,
+                        1.0_f32,
                         if error {
                             Color32::from_rgb(190, 75, 75)
                         } else {
